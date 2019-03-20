@@ -49,26 +49,12 @@ namespace Test
 
 			[FieldOffset(0x26C)]
 			public float LineValue;
-		}
-		public static void PrintProperties<T>(T myObj, bool isAddresses = true)
-		{
-			foreach (var prop in myObj.GetType().GetProperties())
-			{
-				Console.WriteLine(prop.Name + ": " + prop.GetValue(myObj, null));
-			}
 
-			foreach (var field in myObj.GetType().GetFields())
-			{
-				if (isAddresses)
-				{
-					Console.WriteLine(field.Name + ": 0x" + ((int)field.GetValue(myObj)).ToString("X"));
-				}
-				else
-				{
-					Console.WriteLine(field.Name + ": " + field.GetValue(myObj));
-				}
-			}
+			[FieldOffset(0x23C)]
+			public float PlayerDurability;
 		}
+
+		
 
 		public static IntPtr MovementSpeedAddress = IntPtr.Zero;
 		public static IntPtr FisingWndBase = IntPtr.Zero;
@@ -80,6 +66,9 @@ namespace Test
 			{
 				Environment.Exit(-1);
 			}
+
+			//TrampolineInstance det = Mem.CreateTrampolineInstance(target.ToInt64(), 5, true, true, true);
+			
 
 			Thread t = new Thread(CallbackLoop);
 			t.Start();
@@ -129,6 +118,7 @@ namespace Test
 		public static void InstallFishingWndHook()
 		{
 			//ESI
+			// D9 96 ? ? ? ? D8 96 ? ? ? ? DF E0 F6 C4 05 0F 8A ? ? ? ? 8B 0D ? ? ? ?
 			TrampolineInstance FishingWnd_Detour = Mem.CreateTrampolineInstance(0x00BAF2AD,
 				6, true, true, true
 			);
@@ -154,7 +144,7 @@ namespace Test
 				} 
 			}
 
-			PrintProperties(Read, true);
+			Mem.PrintProperties(Read, true);
 			Console.WriteLine(Environment.NewLine);
 		}
 		public static void FishingWndCallback(object obj)
@@ -184,7 +174,7 @@ namespace Test
 				{
 					FishingWnd f = Mem.ReadMemory<FishingWnd>(FisingWndBase.ToInt64());
 					float center = (f.BlueRangeMin + f.BlueRangeMax) / 2f;
-					Mem.Log("Center Value is " + center);
+					//Mem.Log("Center Value is " + center);
 					Mem.WriteMemory<float>(FisingWndBase.ToInt64() + 0x26c, center);
 				}
 
@@ -362,7 +352,7 @@ namespace Test
 			Console.WriteLine("\n\nChar Window Pointer: 0x" + ptrCharWnd.Pointer.ToString("X"));
 			Console.WriteLine("Movespeed Pointer: 0x" + (ptrCharWnd.Pointer.ToInt32() + 14).ToString("X"));
 
-			PrintProperties(read);
+			Mem.PrintProperties(read);
 			Console.ReadLine();
 		}
 	}

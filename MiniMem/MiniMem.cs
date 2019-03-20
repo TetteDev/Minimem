@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -57,7 +58,8 @@ namespace MiniMem
 		public static List<TrampolineInstance> ActiveTrampolines = new List<TrampolineInstance>();
 		public static List<CallbackObject> ActiveCallbacks = new List<CallbackObject>();
 
-	    public static bool Attach(int processId)
+		#region Attaching/Detaching
+		public static bool Attach(int processId)
 	    {
 		    AttachedProcess.ProcessHandle = OpenProcess(PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE, false, processId);
 		    Process first = Process.GetProcessById(processId);
@@ -85,9 +87,10 @@ namespace MiniMem
 	    {
 		    AttachedProcess.Detach();
 	    }
+		#endregion
 
-	    #region ValueFreezer
-	    public static void StartFreezer()
+		#region ValueFreezer
+		public static void StartFreezer()
 	    {
 		    if (Freezer.flagThreadIsRunning) return;
 		    Thread freezeThread = new Thread(Freezer.FreezeLoop);
@@ -382,7 +385,7 @@ namespace MiniMem
 	    public static IntPtr FindPatternSingle(byte[] buffer, string pattern, int refBufferStartAddress = 0)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
-		    if (buffer.Length < 1 || string.IsNullOrEmpty(pattern)) return IntPtr.Zero;
+		    if (buffer.Length < 1 || String.IsNullOrEmpty(pattern)) return IntPtr.Zero;
 		    var list = new List<byte>();
 		    var list2 = new List<bool>();
 		    var array = pattern.Split(' ');
@@ -392,11 +395,11 @@ namespace MiniMem
 			    do
 			    {
 				    var text = array[num];
-				    if (!string.IsNullOrEmpty(text))
+				    if (!String.IsNullOrEmpty(text))
 					    if (!(text == "?") && !(text == "??"))
 					    {
 						    byte b;
-						    if (!byte.TryParse(text, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out b))
+						    if (!System.Byte.TryParse(text, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out b))
 							    break;
 						    list.Add(Convert.ToByte(text, 16));
 						    list2.Add(true);
@@ -438,9 +441,9 @@ namespace MiniMem
 			if (processModule == null) return IntPtr.Zero;
 		    if (resultAbsolute)
 		    {
-			    return string.IsNullOrEmpty(pattern) ? IntPtr.Zero : FindPatternSingle(ReadBytes(processModule.BaseAddress.ToInt64(), (int) processModule.Size), pattern, processModule.BaseAddress.ToInt32());
+			    return String.IsNullOrEmpty(pattern) ? IntPtr.Zero : FindPatternSingle(ReadBytes(processModule.BaseAddress.ToInt64(), (int) processModule.Size), pattern, processModule.BaseAddress.ToInt32());
 		    }
-			return string.IsNullOrEmpty(pattern) ? IntPtr.Zero : FindPatternSingle(ReadBytes(processModule.BaseAddress.ToInt64(), (int)processModule.Size), pattern, 0);
+			return String.IsNullOrEmpty(pattern) ? IntPtr.Zero : FindPatternSingle(ReadBytes(processModule.BaseAddress.ToInt64(), (int)processModule.Size), pattern, 0);
 		}
 	    public static IntPtr FindPatternSingle(long startAddress, long endAddress, string pattern, bool resultAbsolute = true)
 	    {
@@ -450,9 +453,9 @@ namespace MiniMem
 
 		    if (resultAbsolute)
 		    {
-			    return string.IsNullOrEmpty(pattern) ? IntPtr.Zero : FindPatternSingle(ReadBytes(startAddress, (int) size), pattern, (int) startAddress);
+			    return String.IsNullOrEmpty(pattern) ? IntPtr.Zero : FindPatternSingle(ReadBytes(startAddress, (int) size), pattern, (int) startAddress);
 		    }
-		    return string.IsNullOrEmpty(pattern) ? IntPtr.Zero : FindPatternSingle(ReadBytes(startAddress, (int)size), pattern, 0);
+		    return String.IsNullOrEmpty(pattern) ? IntPtr.Zero : FindPatternSingle(ReadBytes(startAddress, (int)size), pattern, 0);
 
 		}
 		#endregion
@@ -797,7 +800,7 @@ namespace MiniMem
 	    {
 		    var process = AttachedProcess.ProcessObject;
 
-		    if (process.ProcessName == string.Empty)
+		    if (process.ProcessName == String.Empty)
 			    return;
 
 		    foreach (ProcessThread pT in process.Threads)
@@ -818,7 +821,7 @@ namespace MiniMem
 	    {
 		    var process = AttachedProcess.ProcessObject;
 
-		    if (process.ProcessName == string.Empty)
+		    if (process.ProcessName == String.Empty)
 			    return;
 
 		    foreach (ProcessThread pT in process.Threads)
@@ -885,7 +888,7 @@ namespace MiniMem
 	    public static ProcModule FindProcessModule(string name, bool exactMatch = true)
 	    {
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
-		    if (string.IsNullOrEmpty(name)) return null;
+		    if (String.IsNullOrEmpty(name)) return null;
 		    AttachedProcess.UpdateInformation();
 			foreach (ProcessModule pm in AttachedProcess.ProcessObject.Modules)
 		    {
@@ -927,7 +930,7 @@ namespace MiniMem
 		#region Logging
 	    public static void Log(string message,MessageType messageType = MessageType.INFO, bool writeToDebug = true, bool writeToFile = false)
 	    {
-		    if (string.IsNullOrEmpty(message)) return;
+		    if (String.IsNullOrEmpty(message)) return;
 		    ConsoleColor clr = ConsoleColor.White;
 
 		    switch (messageType)
@@ -957,7 +960,7 @@ namespace MiniMem
 		    {
 			    try
 			    {
-				    System.IO.File.AppendAllLines("logs.txt", new[] { Environment.NewLine + formattedMessage });
+				    File.AppendAllLines("logs.txt", new[] { Environment.NewLine + formattedMessage });
 			    }
 			    catch
 			    {
@@ -970,5 +973,35 @@ namespace MiniMem
 	    }
 
 		#endregion
-	}
+
+		#region Misc
+	    public static void PrintProperties<T>(T myObj, bool isAddresses = true)
+	    {
+		    foreach (var prop in myObj.GetType().GetProperties())
+		    {
+			    Console.WriteLine(prop.Name + ": " + prop.GetValue(myObj, null));
+		    }
+
+		    foreach (var field in myObj.GetType().GetFields())
+		    {
+			    if (isAddresses)
+			    {
+				    Console.WriteLine(field.Name + ": 0x" + ((int)field.GetValue(myObj)).ToString("X"));
+			    }
+			    else
+			    {
+				    Console.WriteLine(field.Name + ": " + field.GetValue(myObj));
+			    }
+		    }
+	    }
+		public static int GetOffset<T>(T structObject, string offsetname)
+		{
+			if (structObject == null) throw new NullReferenceException(nameof(structObject) + " was null!");
+
+			IntPtr tmp = Marshal.OffsetOf(typeof(T), offsetname);
+
+			return Marshal.OffsetOf(typeof(T), offsetname).ToInt32();
+		}
+	    #endregion
+    }
 }

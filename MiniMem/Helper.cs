@@ -32,6 +32,13 @@ namespace MiniMem
 			return ptr != IntPtr.Zero;
 		}
 	}
+	public static class StructExtensions
+	{
+		public static int GetOffset<T>(this T structObject, string offsetname)
+		{
+			return string.IsNullOrEmpty(offsetname) ? 0 : Marshal.OffsetOf<T>(offsetname).ToInt32();
+		}
+	}
 
 	public class Helper
 	{
