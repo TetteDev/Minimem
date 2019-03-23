@@ -27,6 +27,7 @@ namespace MiniMem
 
 		    public static void UpdateInformation()
 		    {
+			    if (AttachedProcess.ProcessHandle == IntPtr.Zero || AttachedProcess.ProcessObject == null) return;
 			    if (!Process.GetProcesses().ToList().Contains(ProcessObject)) return;
 			    Process newObject = Process.GetProcesses().ToList().FirstOrDefault(x => x == ProcessObject);
 			    ProcessObject = newObject;
@@ -40,6 +41,12 @@ namespace MiniMem
 		    {
 			    return ProcessHandle != IntPtr.Zero &&
 			           ProcessObject != null;
+		    }
+
+		    public static bool IsRunning()
+		    {
+			    UpdateInformation();
+			    return Process.GetProcesses().FirstOrDefault(x => x.Id == AttachedProcess.ProcessObject.Id) != default(Process);
 		    }
 		    internal static void Detach()
 		    {
@@ -975,7 +982,7 @@ namespace MiniMem
 		#endregion
 
 		#region Misc
-	    public static void PrintProperties<T>(T myObj, bool isAddresses = true)
+		public static void PrintProperties<T>(T myObj, bool isAddresses = true)
 	    {
 		    foreach (var prop in myObj.GetType().GetProperties())
 		    {

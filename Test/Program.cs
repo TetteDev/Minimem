@@ -66,8 +66,6 @@ namespace Test
 			{
 				Environment.Exit(-1);
 			}
-
-			//TrampolineInstance det = Mem.CreateTrampolineInstance(target.ToInt64(), 5, true, true, true);
 			
 
 			Thread t = new Thread(CallbackLoop);
@@ -119,9 +117,16 @@ namespace Test
 		{
 			//ESI
 			// D9 96 ? ? ? ? D8 96 ? ? ? ? DF E0 F6 C4 05 0F 8A ? ? ? ? 8B 0D ? ? ? ?
+			var address = Mem.FindPatternSingle(Mem.FindProcessModule("game.bin", false), "D9 96 ? ? ? ? D8 96 ? ? ? ? DF E0 F6 C4 05 0F 8A ? ? ? ? 8B 0D ? ? ? ?");
+
+			TrampolineInstance FishingWnd_Detour = Mem.CreateTrampolineInstance(address.ToInt64(),
+				6, true, true, true
+			);
+			/*
 			TrampolineInstance FishingWnd_Detour = Mem.CreateTrampolineInstance(0x00BAF2AD,
 				6, true, true, true
 			);
+			*/
 
 			CallbackObject FishingWnd_Detour_Object = Mem.CreateCallback(FishingWnd_Detour, "FishingWnd");
 			FishingWnd_Detour_Object.ObjectCallback = FishingWndCallback;
