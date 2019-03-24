@@ -427,10 +427,9 @@ namespace MiniMem
 				if (MiniMem.AttachedProcess.ProcessObject != null)
 					if (shHandle.ProcessID != MiniMem.AttachedProcess.ProcessObject.Id) continue;
 
-				var strObjectTypeName = "";
 				if (strHandleType != null)
 				{
-					strObjectTypeName = getObjectTypeName(shHandle, Process.GetProcessById(shHandle.ProcessID));
+					var strObjectTypeName = getObjectTypeName(shHandle, Process.GetProcessById(shHandle.ProcessID));
 					if (strObjectTypeName != strHandleType) continue;
 				}
 

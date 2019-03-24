@@ -892,14 +892,14 @@ namespace MiniMem
 	    }
 		#endregion
 
-		#region Handle Specific Operations
-	    public static bool TryFindDeleteHandle(string strHandleType = "Mutant", string strHandleName = "FFClientTag")
+		#region Process Handles Specific Operations
+	    public static bool TryFindDeleteHandle(string strHandleType, string strHandleName)
 	    {
-		    if (AttachedProcess.ProcessHandle == IntPtr.Zero || AttachedProcess.ProcessObject == null) return false;
+			// string strHandleType = "Mutant", string strHandleName = "FFClientTag"
+			if (AttachedProcess.ProcessHandle == IntPtr.Zero || AttachedProcess.ProcessObject == null) return false;
+		    if (!AttachedProcess.IsRunning()) return false;
 		    if (string.IsNullOrEmpty(strHandleType) || string.IsNullOrEmpty(strHandleName))
 			    return false;
-		    // Do more sanity checks
-		    // such as checking if passed pProcess is still active etc
 
 		    List<HandleInformation> matchingHandles = GetHandlesByType(strHandleType);
 		    if (matchingHandles.Count < 1) return false;
@@ -910,13 +910,9 @@ namespace MiniMem
 		    try
 		    {
 			    var ipHandle = IntPtr.Zero;
-			    if (!DuplicateHandle(Process.GetProcessById(AttachedProcess.ProcessObject.Id).Handle, specificHandle.Advanced.Handle, GetCurrentProcess(), out ipHandle, 0, false, DUPLICATE_CLOSE_SOURCE))
-			    {
-				    return false;
-			    }
+			    return DuplicateHandle(Process.GetProcessById(AttachedProcess.ProcessObject.Id).Handle, specificHandle.Advanced.Handle, GetCurrentProcess(), out ipHandle, 0, false, DUPLICATE_CLOSE_SOURCE);
 
 			    // We removed DAT handle xDDD
-			    return true;
 		    }
 		    catch (Exception)
 		    {
