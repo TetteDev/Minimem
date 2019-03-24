@@ -66,8 +66,9 @@ namespace Test
 			{
 				Environment.Exit(-1);
 			}
-			
 
+			int z = 1;
+			/*
 			Thread t = new Thread(CallbackLoop);
 			t.Start();
 
@@ -76,7 +77,7 @@ namespace Test
 
 
 			//InstallCharacterWndHook();
-			InstallFishingWndHook();
+			//InstallFishingWndHook();
 
 			Console.WriteLine("Enter anything to remove all hooks:");
 			Console.Title = "Enter anything and press enter to remove all hooks";
@@ -94,6 +95,7 @@ namespace Test
 					Console.WriteLine("Restored stuff for object '" + obj.str_CallbackIdentifier + "'!");
 				}
 			}
+			*/
 		}
 
 		public static void InstallCharacterWndHook()
@@ -132,7 +134,6 @@ namespace Test
 			FishingWnd_Detour_Object.ObjectCallback = FishingWndCallback;
 			Mem.ActiveCallbacks.Add(FishingWnd_Detour_Object);
 		}
-
 		public static void MovementSpeedCallback(object obj)
 		{
 			if (obj == null) return;
@@ -167,7 +168,6 @@ namespace Test
 				}
 			}
 		}
-
 		public static void HackLoop()
 		{
 			while (true)
@@ -186,7 +186,6 @@ namespace Test
 				Thread.Sleep(25);
 			}
 		}
-
 		public static void CallbackLoop()
 		{
 			while (true)
@@ -219,10 +218,6 @@ namespace Test
 				Thread.Sleep(750);
 			}
 		}
-
-
-	
-
 		public static void CallbackCharWnd(object callbackObject)
 		{
 			/*

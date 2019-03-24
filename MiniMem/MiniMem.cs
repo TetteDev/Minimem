@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -28,9 +29,11 @@ namespace MiniMem
 		    public static void UpdateInformation()
 		    {
 			    if (AttachedProcess.ProcessHandle == IntPtr.Zero || AttachedProcess.ProcessObject == null) return;
-			    if (!Process.GetProcesses().ToList().Contains(ProcessObject)) return;
-			    Process newObject = Process.GetProcesses().ToList().FirstOrDefault(x => x == ProcessObject);
-			    ProcessObject = newObject;
+
+			    int id = AttachedProcess.ProcessObject.Id;
+			    Process pObject = Process.GetProcesses().FirstOrDefault(x => x.Id == id);
+			    ProcessObject = pObject != default(Process) ? pObject : null;
+
 		    }
 		    public static bool Is64Bit()
 		    {
@@ -42,13 +45,101 @@ namespace MiniMem
 			    return ProcessHandle != IntPtr.Zero &&
 			           ProcessObject != null;
 		    }
-
 		    public static bool IsRunning()
 		    {
-			    UpdateInformation();
-			    return Process.GetProcesses().FirstOrDefault(x => x.Id == AttachedProcess.ProcessObject.Id) != default(Process);
+			    if (ProcessHandle == IntPtr.Zero || ProcessObject == null) return false;
+			    //UpdateInformation();
+			    return Process.GetProcesses().FirstOrDefault(x => x.Id == ProcessObject.Id) != default(Process);
 		    }
-		    internal static void Detach()
+		    public static List<ProcessModule> ProcessModules()
+		    {
+				UpdateInformation();
+			    return ProcessObject.Modules.Cast<ProcessModule>().ToList();
+		    }
+		    public static List<SYSTEM_HANDLE_INFORMATION> GetOpenedHandlesByProcess(string IN_strObjectTypeName = null, string IN_strObjectName = null, bool verbose = false)
+		    {
+				if (ProcessObject == null) return new List<SYSTEM_HANDLE_INFORMATION>();
+
+			    uint nStatus;
+			    var nHandleInfoSize = 0x10000;
+			    var ipHandlePointer = Marshal.AllocHGlobal(nHandleInfoSize);
+			    var nLength = 0;
+			    var ipHandle = IntPtr.Zero;
+
+			    while ((nStatus = NtQuerySystemInformation(CNST_SYSTEM_HANDLE_INFORMATION, ipHandlePointer,
+				           nHandleInfoSize, ref nLength)) ==
+			           STATUS_INFO_LENGTH_MISMATCH)
+			    {
+				    nHandleInfoSize = nLength;
+				    Marshal.FreeHGlobal(ipHandlePointer);
+				    ipHandlePointer = Marshal.AllocHGlobal(nLength);
+			    }
+
+			    var baTemp = new byte[nLength];
+			    Marshal.Copy(ipHandlePointer, baTemp, 0, nLength);
+
+			    long lHandleCount = 0;
+			    if (Is64Bits())
+			    {
+				    lHandleCount = Marshal.ReadInt64(ipHandlePointer);
+				    ipHandle = new IntPtr(ipHandlePointer.ToInt64() + 8);
+			    }
+			    else
+			    {
+				    lHandleCount = Marshal.ReadInt32(ipHandlePointer);
+				    ipHandle = new IntPtr(ipHandlePointer.ToInt32() + 4);
+			    }
+
+			    SYSTEM_HANDLE_INFORMATION shHandle;
+			    var lstHandles = new List<SYSTEM_HANDLE_INFORMATION>();
+
+			    for (long lIndex = 0; lIndex < lHandleCount; lIndex++)
+			    {
+				    shHandle = new SYSTEM_HANDLE_INFORMATION();
+				    if (Is64Bits())
+				    {
+					    shHandle = (SYSTEM_HANDLE_INFORMATION) Marshal.PtrToStructure(ipHandle, shHandle.GetType());
+					    ipHandle = new IntPtr(ipHandle.ToInt64() + Marshal.SizeOf(shHandle) + 8);
+				    }
+				    else
+				    {
+					    ipHandle = new IntPtr(ipHandle.ToInt64() + Marshal.SizeOf(shHandle));
+					    shHandle = (SYSTEM_HANDLE_INFORMATION) Marshal.PtrToStructure(ipHandle, shHandle.GetType());
+				    }
+
+				    if (ProcessObject != null)
+					    if (shHandle.ProcessID != ProcessObject.Id) continue;
+
+				    if (IN_strObjectTypeName != null)
+				    {
+					    var strObjectTypeName = getObjectTypeName(shHandle, Process.GetProcessById(shHandle.ProcessID));
+					    if (strObjectTypeName != IN_strObjectTypeName) continue;
+				    }
+
+				    var strObjectName = "";
+				    if (IN_strObjectName != null)
+				    {
+					    strObjectName = getObjectName(shHandle, Process.GetProcessById(shHandle.ProcessID));
+					    if (strObjectName != IN_strObjectName) continue;
+				    }
+				    else if (IN_strObjectName == null || IN_strObjectName == "")
+				    {
+					    strObjectName = getObjectName(shHandle, Process.GetProcessById(shHandle.ProcessID));
+					    //Console.WriteLine(strObjectName);
+				    }
+
+				    var strObjectTypeName2 = getObjectTypeName(shHandle, Process.GetProcessById(shHandle.ProcessID));
+				    var strObjectName2 = getObjectName(shHandle, Process.GetProcessById(shHandle.ProcessID));
+				    if (verbose)
+					    Console.WriteLine("{0}   {1}   {2}", shHandle.ProcessID, strObjectTypeName2, strObjectName2);
+
+				    lstHandles.Add(shHandle);
+			    }
+			    return lstHandles;
+
+		    }
+
+			internal static void Detach()
 		    {
 			    try
 			    {
@@ -62,7 +153,6 @@ namespace MiniMem
 			    }
 		    }
 	    }
-		public static List<TrampolineInstance> ActiveTrampolines = new List<TrampolineInstance>();
 		public static List<CallbackObject> ActiveCallbacks = new List<CallbackObject>();
 
 		#region Attaching/Detaching
@@ -802,6 +892,40 @@ namespace MiniMem
 	    }
 		#endregion
 
+		#region Handle Specific Operations
+	    public static bool TryFindDeleteHandle(string strHandleType = "Mutant", string strHandleName = "FFClientTag")
+	    {
+		    if (AttachedProcess.ProcessHandle == IntPtr.Zero || AttachedProcess.ProcessObject == null) return false;
+		    if (string.IsNullOrEmpty(strHandleType) || string.IsNullOrEmpty(strHandleName))
+			    return false;
+		    // Do more sanity checks
+		    // such as checking if passed pProcess is still active etc
+
+		    List<HandleInformation> matchingHandles = GetHandlesByType(strHandleType);
+		    if (matchingHandles.Count < 1) return false;
+
+		    HandleInformation specificHandle = matchingHandles.FirstOrDefault(x => x.HandleName.Contains(strHandleName));
+		    if (specificHandle == null) return false;
+
+		    try
+		    {
+			    var ipHandle = IntPtr.Zero;
+			    if (!DuplicateHandle(Process.GetProcessById(AttachedProcess.ProcessObject.Id).Handle, specificHandle.Advanced.Handle, GetCurrentProcess(), out ipHandle, 0, false, DUPLICATE_CLOSE_SOURCE))
+			    {
+				    return false;
+			    }
+
+			    // We removed DAT handle xDDD
+			    return true;
+		    }
+		    catch (Exception)
+		    {
+			    Console.WriteLine("ERROR LEL");
+			    return false;
+		    }
+	    }
+		#endregion
+
 		#region Suspend Process
 		public static void SuspendProcess()
 	    {
@@ -855,11 +979,13 @@ namespace MiniMem
 	    public static IntPtr AllocateMemory(uint size, uint protectionFlags, uint allocationFlags)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
+		    if (!AttachedProcess.IsRunning()) throw new Exception("Game is not running anymore!");
 			return VirtualAllocEx(AttachedProcess.ProcessHandle, IntPtr.Zero, new IntPtr(size), allocationFlags, protectionFlags);
 		}
 	    public static RemoteAllocatedMemory AllocateMemory(int size, MemoryProtection protectionFlags, AllocationType allocationFlags)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
+			if (!AttachedProcess.IsRunning()) throw new Exception("Game is not running anymore!");
 			IntPtr alloc = VirtualAllocEx(AttachedProcess.ProcessHandle, IntPtr.Zero, new IntPtr(size), (uint) allocationFlags, (uint) protectionFlags);
 		    if (alloc == IntPtr.Zero) return null;
 		    RemoteAllocatedMemory ret = new RemoteAllocatedMemory
@@ -875,6 +1001,7 @@ namespace MiniMem
 	    public static bool FreeMemory(RemoteAllocatedMemory memoryItem)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
+		    if (!AttachedProcess.IsRunning()) return false;
 			try
 		    {
 			    return VirtualFreeEx(AttachedProcess.ProcessHandle, memoryItem.Pointer, memoryItem.Size, 0x8000);
@@ -1009,6 +1136,6 @@ namespace MiniMem
 
 			return Marshal.OffsetOf(typeof(T), offsetname).ToInt32();
 		}
-	    #endregion
-    }
+		#endregion
+	}
 }

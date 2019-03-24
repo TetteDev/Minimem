@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using static MiniMem.Constants;
@@ -258,6 +260,192 @@ namespace MiniMem
 			}
 
 			return ret;
+		}
+
+		public static string getObjectTypeName(SYSTEM_HANDLE_INFORMATION shHandle, Process process)
+		{
+			var m_ipProcessHwnd = Native.OpenProcess((int)ProcessAccessFlags.All, false, process.Id);
+			var ipHandle = IntPtr.Zero;
+			var objBasic = new OBJECT_BASIC_INFORMATION();
+			var ipBasic = IntPtr.Zero;
+			var objObjectType = new OBJECT_TYPE_INFORMATION();
+			var ipObjectType = IntPtr.Zero;
+			var ipObjectName = IntPtr.Zero;
+			var strObjectTypeName = "";
+			var nLength = 0;
+			var nReturn = 0;
+			var ipTemp = IntPtr.Zero;
+
+			if (!Native.DuplicateHandle(m_ipProcessHwnd, shHandle.Handle,
+				Native.GetCurrentProcess(), out ipHandle,
+				0, false, DUPLICATE_SAME_ACCESS))
+				return null;
+
+			ipBasic = Marshal.AllocHGlobal(Marshal.SizeOf(objBasic));
+			Native.NtQueryObject(ipHandle, (int)ObjectInformationClass.ObjectBasicInformation,
+				ipBasic, Marshal.SizeOf(objBasic), ref nLength);
+			objBasic = (OBJECT_BASIC_INFORMATION)Marshal.PtrToStructure(ipBasic, objBasic.GetType());
+			Marshal.FreeHGlobal(ipBasic);
+
+			ipObjectType = Marshal.AllocHGlobal(objBasic.TypeInformationLength);
+			nLength = objBasic.TypeInformationLength;
+			while ((uint)(nReturn = Native.NtQueryObject(
+					   ipHandle, (int)ObjectInformationClass.ObjectTypeInformation, ipObjectType,
+					   nLength, ref nLength)) ==
+				   STATUS_INFO_LENGTH_MISMATCH)
+			{
+				Marshal.FreeHGlobal(ipObjectType);
+				ipObjectType = Marshal.AllocHGlobal(nLength);
+			}
+
+			objObjectType = (OBJECT_TYPE_INFORMATION)Marshal.PtrToStructure(ipObjectType, objObjectType.GetType());
+			if (Is64Bits())
+				ipTemp = new IntPtr(Convert.ToInt64(objObjectType.Name.Buffer.ToString(), 10) >> 32);
+			else
+				ipTemp = objObjectType.Name.Buffer;
+
+			strObjectTypeName = Marshal.PtrToStringUni(ipTemp, objObjectType.Name.Length >> 1);
+			Marshal.FreeHGlobal(ipObjectType);
+			return strObjectTypeName;
+		}
+		public static string getObjectName( SYSTEM_HANDLE_INFORMATION shHandle, Process process)
+		{
+			var m_ipProcessHwnd = Native.OpenProcess((int)ProcessAccessFlags.All, false, process.Id);
+			var ipHandle = IntPtr.Zero;
+			var objBasic = new OBJECT_BASIC_INFORMATION();
+			var ipBasic = IntPtr.Zero;
+			var ipObjectType = IntPtr.Zero;
+			var objObjectName = new OBJECT_NAME_INFORMATION();
+			var ipObjectName = IntPtr.Zero;
+			var strObjectName = "";
+			var nLength = 0;
+			var nReturn = 0;
+			var ipTemp = IntPtr.Zero;
+
+			if (!Native.DuplicateHandle(m_ipProcessHwnd, shHandle.Handle, Native.GetCurrentProcess(),
+				out ipHandle, 0, false, DUPLICATE_SAME_ACCESS))
+				return null;
+
+			ipBasic = Marshal.AllocHGlobal(Marshal.SizeOf(objBasic));
+			Native.NtQueryObject(ipHandle, (int)ObjectInformationClass.ObjectBasicInformation,
+				ipBasic, Marshal.SizeOf(objBasic), ref nLength);
+			objBasic = (OBJECT_BASIC_INFORMATION)Marshal.PtrToStructure(ipBasic, objBasic.GetType());
+			Marshal.FreeHGlobal(ipBasic);
+
+
+			nLength = objBasic.NameInformationLength;
+
+			ipObjectName = Marshal.AllocHGlobal(nLength);
+			while ((uint)(nReturn = Native.NtQueryObject(
+					   ipHandle, (int)ObjectInformationClass.ObjectNameInformation,
+					   ipObjectName, nLength, ref nLength))
+				   == STATUS_INFO_LENGTH_MISMATCH)
+			{
+				Marshal.FreeHGlobal(ipObjectName);
+				ipObjectName = Marshal.AllocHGlobal(nLength);
+			}
+			objObjectName = (OBJECT_NAME_INFORMATION)Marshal.PtrToStructure(ipObjectName, objObjectName.GetType());
+
+			ipTemp = Is64Bits() ? new IntPtr(Convert.ToInt64(objObjectName.Name.Buffer.ToString(), 10) >> 32) : objObjectName.Name.Buffer;
+
+			if (ipTemp != IntPtr.Zero)
+			{
+				var baTemp2 = new byte[nLength];
+				try
+				{
+					Marshal.Copy(ipTemp, baTemp2, 0, nLength);
+
+					strObjectName = Marshal.PtrToStringUni(Is64Bits() ? new IntPtr(ipTemp.ToInt64()) : new IntPtr(ipTemp.ToInt32()));
+					return strObjectName;
+				}
+				catch (AccessViolationException)
+				{
+					Console.WriteLine("[WARNING] Access violation!");
+					return null;
+				}
+				finally
+				{
+					Marshal.FreeHGlobal(ipObjectName);
+					Native.CloseHandle(ipHandle);
+				}
+			}
+
+			return null;
+		}
+		public static List<HandleInformation> GetHandlesByType(string strHandleType = "Directory")
+		{
+			uint nStatus;
+			var nHandleInfoSize = 0x10000;
+			var ipHandlePointer = Marshal.AllocHGlobal(nHandleInfoSize);
+			var nLength = 0;
+			var ipHandle = IntPtr.Zero;
+
+			while ((nStatus = Native.NtQuerySystemInformation(CNST_SYSTEM_HANDLE_INFORMATION, ipHandlePointer,
+					   nHandleInfoSize, ref nLength)) ==
+				   STATUS_INFO_LENGTH_MISMATCH)
+			{
+				nHandleInfoSize = nLength;
+				Marshal.FreeHGlobal(ipHandlePointer);
+				ipHandlePointer = Marshal.AllocHGlobal(nLength);
+			}
+
+			var baTemp = new byte[nLength];
+			Marshal.Copy(ipHandlePointer, baTemp, 0, nLength);
+
+			long lHandleCount = 0;
+			if (Is64Bits())
+			{
+				lHandleCount = Marshal.ReadInt64(ipHandlePointer);
+				ipHandle = new IntPtr(ipHandlePointer.ToInt64() + 8);
+			}
+			else
+			{
+				lHandleCount = Marshal.ReadInt32(ipHandlePointer);
+				ipHandle = new IntPtr(ipHandlePointer.ToInt32() + 4);
+			}
+
+			List<HandleInformation> toReturn = new List<HandleInformation>();
+			SYSTEM_HANDLE_INFORMATION shHandle;
+			HandleInformation realInfo;
+
+			for (long lIndex = 0; lIndex < lHandleCount; lIndex++)
+			{
+				shHandle = new SYSTEM_HANDLE_INFORMATION();
+				realInfo = new HandleInformation();
+
+				if (Is64Bits())
+				{
+					shHandle = (SYSTEM_HANDLE_INFORMATION)Marshal.PtrToStructure(ipHandle, shHandle.GetType());
+					ipHandle = new IntPtr(ipHandle.ToInt64() + Marshal.SizeOf(shHandle) + 8);
+				}
+				else
+				{
+					ipHandle = new IntPtr(ipHandle.ToInt64() + Marshal.SizeOf(shHandle));
+					shHandle = (SYSTEM_HANDLE_INFORMATION)Marshal.PtrToStructure(ipHandle, shHandle.GetType());
+				}
+
+				if (MiniMem.AttachedProcess.ProcessObject != null)
+					if (shHandle.ProcessID != MiniMem.AttachedProcess.ProcessObject.Id) continue;
+
+				var strObjectTypeName = "";
+				if (strHandleType != null)
+				{
+					strObjectTypeName = getObjectTypeName(shHandle, Process.GetProcessById(shHandle.ProcessID));
+					if (strObjectTypeName != strHandleType) continue;
+				}
+
+				realInfo.HandleName = getObjectName(shHandle, Process.GetProcessById(shHandle.ProcessID));
+				realInfo.Advanced = shHandle;
+
+				if (realInfo.HandleName == null) continue;
+
+				toReturn.Add(realInfo);
+			}
+			return toReturn;
+		}
+		public static bool Is64Bits()
+		{
+			return Marshal.SizeOf(typeof(IntPtr)) == 8 ? true : false;
 		}
 	}
 }

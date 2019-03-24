@@ -39,6 +39,27 @@ namespace MiniMem
 		public delegate int VirtualQueryExDelegate(IntPtr hProcess, IntPtr lpAddress, out Constants.MEMORY_BASIC_INFORMATION lpBuffer, uint dwLength);
 		public static VirtualQueryExDelegate VirtualQueryEx = CreateAPI<VirtualQueryExDelegate>("kernel32.dll", "VirtualQueryEx");
 
+		[DllImport("ntdll.dll")]
+		public static extern uint NtQuerySystemInformation(
+			int systemInformationClass,
+			IntPtr systemInformation,
+			int systemInformationLength,
+			ref int returnLength);
+
+		[DllImport("kernel32.dll", SetLastError = true)]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		public static extern bool DuplicateHandle(IntPtr hSourceProcessHandle,
+			ushort hSourceHandle, IntPtr hTargetProcessHandle, out IntPtr lpTargetHandle,
+			uint dwDesiredAccess, [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle, uint dwOptions);
+
+		[DllImport("ntdll.dll")]
+		public static extern int NtQueryObject(IntPtr ObjectHandle, int
+				ObjectInformationClass, IntPtr ObjectInformation, int ObjectInformationLength,
+			ref int returnLength);
+
+		[DllImport("kernel32.dll")]
+		public static extern IntPtr GetCurrentProcess();
+
 		[DllImport("kernel32.dll")]
 		public static extern uint SuspendThread(IntPtr hThread);
 		[DllImport("kernel32.dll")]
