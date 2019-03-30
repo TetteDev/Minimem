@@ -34,9 +34,11 @@ namespace Test
 					"call ecx",
 					// here will our register dump mnemonic be placed is ImplementRegisterDump is true
 					// Here will the inc instruction will be placed in our case if ImplementCallback is true
+					// Here will the jump back out to (Target Address + 5) be placed
 				},
 				CodeExecutedEvent, // codeExecutedEventDelegate
 				out  obj,// Created Callback Object
+				"MY_IDENTIFIER",
 				true, // ShouldSuspend
 				false, // PreserveOriginalInstruction
 				true, // ImplementCallback

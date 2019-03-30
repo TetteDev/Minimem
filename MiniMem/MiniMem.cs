@@ -885,7 +885,7 @@ namespace MiniMem
 		    return newInstance;
 	    }
 
-		public static bool CreateTrampolineAndCallback(IntPtr targetAddress, int targetAddressInstructionCount, string[] mnemonics, CallbackDelegate codeExecutedEventDelegate, out CallbackObject createdObject, bool shouldSuspend = true, bool preserveOriginalInstruction = true, bool implementCallback = true, bool implementRegisterDump = true)
+		public static bool CreateTrampolineAndCallback(IntPtr targetAddress, int targetAddressInstructionCount, string[] mnemonics, CallbackDelegate codeExecutedEventDelegate, out CallbackObject createdObject, string identifier = "", bool shouldSuspend = true, bool preserveOriginalInstruction = false, bool implementCallback = true, bool implementRegisterDump = true)
 		{
 			#region Function Specific Variables
 			RemoteAllocatedMemory callbackPointer = null;
@@ -1061,7 +1061,7 @@ namespace MiniMem
 				AllocatedMemory = codeCavePointer,
 				NewBytes = jmpBytesIn.ToArray(),
 				OriginalBytes = originalInstructionBytes.ToArray(),
-				Identifier = "FIX THIS",
+				Identifier = identifier == "" ? "NO_IDENTFIER_PROVIDED" : identifier,
 				optionalRegisterStructPointer = registerStructurePointer.Pointer,
 				optionalHitCounterPointer = callbackPointer.Pointer,
 				TrampolineJmpOutDestination = targetAddress.ToInt32() + targetAddressInstructionCount,
@@ -1074,8 +1074,8 @@ namespace MiniMem
 			{
 				class_TrampolineInfo = trampolineObject,
 				ptr_HitCounter = callbackPointer.Pointer,
-				ObjectCallback = null, // FIX THIS
-				str_CallbackIdentifier = "FIX THIS",
+				ObjectCallback = codeExecutedEventDelegate, 
+				str_CallbackIdentifier = identifier == "" ? "NO_IDENTFIER_PROVIDED" : identifier,
 				LastValue = 0
 			};
 
@@ -1145,8 +1145,6 @@ namespace MiniMem
 		    {
 			    var ipHandle = IntPtr.Zero;
 			    return DuplicateHandle(Process.GetProcessById(AttachedProcess.ProcessObject.Id).Handle, specificHandle.Advanced.Handle, GetCurrentProcess(), out ipHandle, 0, false, DUPLICATE_CLOSE_SOURCE);
-
-			    // We removed DAT handle xDDD
 		    }
 		    catch (Exception)
 		    {

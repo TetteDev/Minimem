@@ -55,7 +55,9 @@ namespace MiniMem
 					continue;
 				}
 
-				Console.WriteLine(MiniMem.ActiveCallbacks.Count);
+#if DEBUG
+				Console.WriteLine($"{MiniMem.ActiveCallbacks.Count} registered items in Callback Monitor");
+#endif
 
 				for (int i = MiniMem.ActiveCallbacks.Count - 1; i >= 0; i--)
 				{
