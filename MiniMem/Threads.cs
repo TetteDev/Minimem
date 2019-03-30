@@ -1,7 +1,4 @@
 ﻿using System;
-using System.Runtime.InteropServices;
-using System.Threading;
-using Binarysharp.Assemblers.Fasm;
 using Mem = MiniMem.MiniMem;
 
 namespace MiniMem

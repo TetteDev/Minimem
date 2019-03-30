@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
 using static MiniMem.Constants;
 
 namespace MiniMem
@@ -44,6 +45,41 @@ namespace MiniMem
 
 	public class Helper
 	{
+		public static void CallbackLoop()
+		{
+			while (true)
+			{
+				if (MiniMem.ActiveCallbacks.Count < 1 || MiniMem.AttachedProcess.ProcessHandle == IntPtr.Zero)
+				{
+					Thread.Sleep(25);
+					continue;
+				}
+
+				Console.WriteLine(MiniMem.ActiveCallbacks.Count);
+
+				for (int i = MiniMem.ActiveCallbacks.Count - 1; i >= 0; i--)
+				{
+					CallbackObject cObj = MiniMem.ActiveCallbacks[i];
+					if (cObj.ObjectCallback == null) continue;
+					if (cObj.ptr_HitCounter == IntPtr.Zero) continue;
+
+					uint r = MiniMem.ReadMemory<uint>(cObj.ptr_HitCounter.ToInt64());
+					if (r != cObj.LastValue)
+					{
+#if DEBUG
+						//Mem.Log($"Callback triggered for callback object '{cObj.str_CallbackIdentifier}' (HitCount: {r})");
+#endif
+						MiniMem.ActiveCallbacks.Remove(cObj);
+
+						cObj.LastValue = r;
+						MiniMem.ActiveCallbacks.Add(cObj);
+						cObj.ObjectCallback?.Invoke(cObj);
+					}
+				}
+				Thread.Sleep(750);
+			}
+		}
+
 		public class MarshalCache<T>
 		{
 			// Token: 0x0600008B RID: 139 RVA: 0x000010EC File Offset: 0x000004EC
@@ -260,6 +296,16 @@ namespace MiniMem
 			}
 
 			return ret;
+		}
+
+		public static IntPtr CalculateRelativeOffset(IntPtr origin, IntPtr dest)
+		{
+			// Use this for relative instructions such as JMP or CALL etc etc
+
+			if (origin == IntPtr.Zero || dest == IntPtr.Zero)
+				throw new Exception($"{nameof(dest)} or {nameof(origin)} were invalid lulz!!!");
+
+			return IntPtr.Subtract(dest, origin.ToInt32());
 		}
 
 		public static string getObjectTypeName(SYSTEM_HANDLE_INFORMATION shHandle, Process process)

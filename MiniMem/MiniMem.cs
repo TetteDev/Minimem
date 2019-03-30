@@ -1,27 +1,27 @@
-﻿using System;
+﻿using Binarysharp.Assemblers.Fasm;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using static MiniMem.Native;
 using static MiniMem.Constants;
 using static MiniMem.Helper;
+using static MiniMem.Native;
 using Byte = MiniMem.Constants.Byte;
-using Binarysharp.Assemblers.Fasm;
-using static MiniMem.Threads;
 
 namespace MiniMem
 {
-    public class MiniMem
+	public class MiniMem
     {
-	    public class AttachedProcess
+	    public static List<CallbackObject> ActiveCallbacks = new List<CallbackObject>();
+
+		public class AttachedProcess
 	    {
 		    public static Process ProcessObject = null;
 		    public static IntPtr ProcessHandle = IntPtr.Zero;
@@ -125,7 +125,6 @@ namespace MiniMem
 				    else if (IN_strObjectName == null || IN_strObjectName == "")
 				    {
 					    strObjectName = getObjectName(shHandle, Process.GetProcessById(shHandle.ProcessID));
-					    //Console.WriteLine(strObjectName);
 				    }
 
 				    var strObjectTypeName2 = getObjectTypeName(shHandle, Process.GetProcessById(shHandle.ProcessID));
@@ -153,15 +152,27 @@ namespace MiniMem
 			    }
 		    }
 	    }
-		public static List<CallbackObject> ActiveCallbacks = new List<CallbackObject>();
 
 		#region Attaching/Detaching
 		public static bool Attach(int processId)
 	    {
-		    AttachedProcess.ProcessHandle = OpenProcess(PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE, false, processId);
-		    Process first = Process.GetProcessById(processId);
-		    AttachedProcess.ProcessObject = first;
-		    return AttachedProcess.ProcessHandle != IntPtr.Zero;
+		    try
+		    {
+			    AttachedProcess.ProcessHandle = OpenProcess(PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE, false, processId);
+			    Process first = Process.GetProcessById(processId);
+			    AttachedProcess.ProcessObject = first;
+			    return AttachedProcess.ProcessHandle != IntPtr.Zero;
+		    }
+		    finally
+		    {
+			    if (AttachedProcess.ProcessHandle != IntPtr.Zero)
+			    {
+					Thread t = new Thread(Helper.CallbackLoop);
+					t.Start();
+				}
+					
+		    }
+		   
 	    }
 	    public static bool Attach(string processName)
 	    {
@@ -179,6 +190,14 @@ namespace MiniMem
 			    AttachedProcess.ProcessObject = null;
 			    return false;
 		    }
+		    finally
+		    {
+				if (AttachedProcess.ProcessHandle != IntPtr.Zero)
+				{
+					Thread t = new Thread(Helper.CallbackLoop);
+					t.Start();
+				}
+			}
 	    }
 	    public static void Detach()
 	    {
@@ -482,7 +501,7 @@ namespace MiniMem
 	    public static IntPtr FindPatternSingle(byte[] buffer, string pattern, int refBufferStartAddress = 0)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
-		    if (buffer.Length < 1 || String.IsNullOrEmpty(pattern)) return IntPtr.Zero;
+		    if (buffer.Length < 1 || string.IsNullOrEmpty(pattern)) return IntPtr.Zero;
 		    var list = new List<byte>();
 		    var list2 = new List<bool>();
 		    var array = pattern.Split(' ');
@@ -493,7 +512,7 @@ namespace MiniMem
 			    {
 				    var text = array[num];
 				    if (!String.IsNullOrEmpty(text))
-					    if (!(text == "?") && !(text == "??"))
+					    if (text != "?" && text != "??")
 					    {
 						    byte b;
 						    if (!System.Byte.TryParse(text, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out b))
@@ -865,6 +884,222 @@ namespace MiniMem
 
 		    return newInstance;
 	    }
+
+		public static bool CreateTrampolineAndCallback(IntPtr targetAddress, int targetAddressInstructionCount, string[] mnemonics, CallbackDelegate codeExecutedEventDelegate, out CallbackObject createdObject, bool shouldSuspend = true, bool preserveOriginalInstruction = true, bool implementCallback = true, bool implementRegisterDump = true)
+		{
+			#region Function Specific Variables
+			RemoteAllocatedMemory callbackPointer = null;
+			RemoteAllocatedMemory registerStructurePointer = null;
+			RemoteAllocatedMemory codeCavePointer = null;
+			int incInstructionIndex = -1;
+			int registerDumpInstructions = -1;
+			int jmpInstructionNopBytesNeeded = 0;
+			byte[] originalInstructionBytes = new byte[] { };
+			bool didSuspend = false;
+			#endregion
+
+			#region Check - Attached to process
+			if (!AttachedProcess.IsAttached())
+			{
+				// Not Attached to any process
+				createdObject = null;
+				return false;
+			}
+			#endregion
+			#region Check - Initial mnemonics are valid
+			try
+			{
+				byte[] tmp = FasmNet.Assemble(mnemonics);
+			}
+			catch
+			{
+				// Passed mnemonics are not valid
+				createdObject = null;
+				return false;
+			}
+			#endregion
+			#region Check - Have enough bytes to work with, also calculate nops needed
+
+			if (targetAddressInstructionCount < 5)
+			{
+				createdObject = null;
+				return false;
+			}
+			jmpInstructionNopBytesNeeded = targetAddressInstructionCount - 5;
+			#endregion
+
+			#region Modifying of passed mnemonics
+			var baseMnemonics = mnemonics.ToList();
+
+			if (implementCallback)
+			{
+				callbackPointer = AllocateMemory(4, MemoryProtection.ExecuteReadWrite, AllocationType.Commit | AllocationType.Reserve);
+				if (callbackPointer.Pointer == IntPtr.Zero)
+					throw new Exception("Failed allocating memory inside the process!\nTrampoline cannot be implemented!");
+
+				if (baseMnemonics[baseMnemonics.Count - 1].ToLower().StartsWith("ret") || baseMnemonics[baseMnemonics.Count - 1].ToLower().StartsWith("retn"))
+				{
+					incInstructionIndex = baseMnemonics.Count - 1;
+					baseMnemonics.Insert(incInstructionIndex, $"inc dword [{callbackPointer.Pointer}]"); // Insert "inc" instruction at the end of our mnemonics
+				}
+				else
+				{
+					incInstructionIndex = baseMnemonics.Count;
+					baseMnemonics.Insert(incInstructionIndex, $"inc dword [{callbackPointer.Pointer}]"); // Insert "inc" instruction at the end of our mnemonics
+				}
+
+				WriteMemory<int>(callbackPointer.Pointer.ToInt64(), 0);
+			}
+
+			if (implementRegisterDump)
+			{
+				registerStructurePointer = AllocateMemory(32 /* 8 * 4 */, MemoryProtection.ExecuteReadWrite, AllocationType.Commit | AllocationType.Reserve);
+				if (registerStructurePointer.Pointer == IntPtr.Zero)
+					throw new Exception("Failed allocating memory inside the process!\nTrampoline cannot be implemented!");
+
+				if (implementCallback && incInstructionIndex != -1)
+				{
+					// Place register dump mnemonics just before the index where the callback "inc" instruction is
+					baseMnemonics.InsertRange(incInstructionIndex, new string[]
+					{
+						$"mov [{registerStructurePointer.Pointer}],eax",
+						$"mov [{registerStructurePointer.Pointer + 4}],ebx",
+						$"mov [{registerStructurePointer.Pointer + 8}],ecx",
+						$"mov [{registerStructurePointer.Pointer + 12}],edx",
+						$"mov [{registerStructurePointer.Pointer + 16}],edi",
+						$"mov [{registerStructurePointer.Pointer + 20}],esi",
+						$"mov [{registerStructurePointer.Pointer + 24}],ebp",
+						$"mov [{registerStructurePointer.Pointer + 28}],esp",
+					});
+				}
+				else if (implementCallback && incInstructionIndex == -1)
+				{
+					if (baseMnemonics[baseMnemonics.Count - 1].ToLower().StartsWith("ret") || baseMnemonics[baseMnemonics.Count - 1].ToLower().StartsWith("retn"))
+					{
+						baseMnemonics.InsertRange(baseMnemonics.Count - 1, new string[]
+						{
+							$"mov [{registerStructurePointer.Pointer}],eax",
+							$"mov [{registerStructurePointer.Pointer + 4}],ebx",
+							$"mov [{registerStructurePointer.Pointer + 8}],ecx",
+							$"mov [{registerStructurePointer.Pointer + 12}],edx",
+							$"mov [{registerStructurePointer.Pointer + 16}],edi",
+							$"mov [{registerStructurePointer.Pointer + 20}],esi",
+							$"mov [{registerStructurePointer.Pointer + 24}],ebp",
+							$"mov [{registerStructurePointer.Pointer + 28}],esp",
+						});
+					}
+					else
+					{
+						baseMnemonics.InsertRange(baseMnemonics.Count, new string[]
+						{
+							$"mov [{registerStructurePointer.Pointer}],eax",
+							$"mov [{registerStructurePointer.Pointer + 4}],ebx",
+							$"mov [{registerStructurePointer.Pointer + 8}],ecx",
+							$"mov [{registerStructurePointer.Pointer + 12}],edx",
+							$"mov [{registerStructurePointer.Pointer + 16}],edi",
+							$"mov [{registerStructurePointer.Pointer + 20}],esi",
+							$"mov [{registerStructurePointer.Pointer + 24}],ebp",
+							$"mov [{registerStructurePointer.Pointer + 28}],esp",
+						});
+					}
+
+				}
+			}
+			#endregion
+
+			#region Implementing the actual trampoline
+			if (preserveOriginalInstruction)
+			{
+				originalInstructionBytes = ReadBytes(targetAddress.ToInt64(), targetAddressInstructionCount);
+			}
+
+			codeCavePointer = AllocateMemory(0x10000, MemoryProtection.ExecuteReadWrite, AllocationType.Commit | AllocationType.Reserve);
+			if (codeCavePointer.Pointer == IntPtr.Zero)
+				throw new Exception("Failed allocating memory inside the process!\nTrampoline cannot be implemented!");
+
+			IntPtr relativeOffsetForJmpIn = Helper.CalculateRelativeOffset(targetAddress, codeCavePointer.Pointer - 5);
+			List<byte> jmpBytesIn = new List<byte> { 0xE9 };
+			jmpBytesIn.AddRange(BitConverter.GetBytes(relativeOffsetForJmpIn.ToInt32()));
+
+			if (jmpInstructionNopBytesNeeded > 0)
+			{
+				for (int iNopIdx = 0; iNopIdx < jmpInstructionNopBytesNeeded; iNopIdx++)
+				{
+					jmpBytesIn.Add(0x90);
+				}
+			}
+
+			if (shouldSuspend)
+			{
+				SuspendProcess();
+				didSuspend = true;
+			}
+
+			WriteBytes(targetAddress.ToInt64(), jmpBytesIn.ToArray());
+			byte[] codeCaveBytes = FasmNet.Assemble(baseMnemonics.ToArray());
+
+			if (originalInstructionBytes.Length > 0 && preserveOriginalInstruction)
+			{
+				byte[] combined = new byte[codeCaveBytes.Length + originalInstructionBytes.Length];
+				combined = originalInstructionBytes.Concat(codeCaveBytes).ToArray();
+				codeCaveBytes = combined;
+			}
+
+			WriteBytes(codeCavePointer.Pointer.ToInt64(), codeCaveBytes);
+
+			IntPtr currentPosition = IntPtr.Add(codeCavePointer.Pointer, codeCaveBytes.Length);
+			IntPtr relativeOffsetForJmpOut = Helper.CalculateRelativeOffset(currentPosition, targetAddress);
+
+			List<byte> jmpBytesOut = new List<byte> { 0xE9 };
+			jmpBytesOut.AddRange(BitConverter.GetBytes(relativeOffsetForJmpOut.ToInt32()));
+			WriteBytes(currentPosition.ToInt64(), jmpBytesOut.ToArray()); // Append the jump out instruction at the end of our code cave
+			#endregion
+
+			#region Constructing the final return object
+			TrampolineInstance trampolineObject = new TrampolineInstance
+			{
+				AllocatedMemory = codeCavePointer,
+				NewBytes = jmpBytesIn.ToArray(),
+				OriginalBytes = originalInstructionBytes.ToArray(),
+				Identifier = "FIX THIS",
+				optionalRegisterStructPointer = registerStructurePointer.Pointer,
+				optionalHitCounterPointer = callbackPointer.Pointer,
+				TrampolineJmpOutDestination = targetAddress.ToInt32() + targetAddressInstructionCount,
+				SuspendNeeded = shouldSuspend,
+				TrampolineOrigin = targetAddress.ToInt64(),
+				TrampolineDestination = codeCavePointer.Pointer.ToInt64()
+			};
+
+			CallbackObject returnObject = new CallbackObject
+			{
+				class_TrampolineInfo = trampolineObject,
+				ptr_HitCounter = callbackPointer.Pointer,
+				ObjectCallback = null, // FIX THIS
+				str_CallbackIdentifier = "FIX THIS",
+				LastValue = 0
+			};
+
+			#endregion
+
+			string formattedSucessMessage = $"Trampoline successfully injectd at address 0x{targetAddress.ToInt32():X} in process '{AttachedProcess.ProcessObject.ProcessName}'!\n\n" +
+											$"	* Dumped Register Values Struct Start Address: 0x{registerStructurePointer.Pointer.ToInt32():X}\n" +
+			                                $"	* Hitcount Pointer: 0x{callbackPointer.Pointer.ToInt32():X}\n\n" +
+
+											$"	* Codecave Start Address: 0x{codeCavePointer.Pointer.ToInt32():X}\n" +
+											"	* Codecave Allocated Size: 0x10000\n" +
+											$"	* Codecave Code Size: 0x{codeCaveBytes.Length + 5}\n" +
+			                                $"	* Injected Mnemonics in Codecave(Original overwritten bytes and jmp out excluded):\n\n	{string.Join("	\n	", baseMnemonics.ToArray())}\n\n" +
+											$"	* Codecave Return Address: 0x{targetAddress.ToInt32() + 5:X}\n";
+
+			Log(formattedSucessMessage);
+			
+			if (shouldSuspend && didSuspend)
+			{
+				ResumeProcess(); // Resume process
+			}
+			createdObject = returnObject;
+			return true;
+		}
 		#endregion
 
 		#region FASM
@@ -895,7 +1130,6 @@ namespace MiniMem
 		#region Process Handles Specific Operations
 	    public static bool TryFindDeleteHandle(string strHandleType, string strHandleName)
 	    {
-			// string strHandleType = "Mutant", string strHandleName = "FFClientTag"
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero || AttachedProcess.ProcessObject == null) return false;
 		    if (!AttachedProcess.IsRunning()) return false;
 		    if (string.IsNullOrEmpty(strHandleType) || string.IsNullOrEmpty(strHandleName))
@@ -924,7 +1158,8 @@ namespace MiniMem
 
 		#region Suspend Process
 		public static void SuspendProcess()
-	    {
+		{
+			if (AttachedProcess.ProcessHandle == IntPtr.Zero) return;
 		    var process = AttachedProcess.ProcessObject;
 
 		    if (process.ProcessName == String.Empty)
@@ -946,7 +1181,8 @@ namespace MiniMem
 		}
 	    public static void ResumeProcess()
 	    {
-		    var process = AttachedProcess.ProcessObject;
+		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) return;
+			var process = AttachedProcess.ProcessObject;
 
 		    if (process.ProcessName == String.Empty)
 			    return;
@@ -1018,7 +1254,7 @@ namespace MiniMem
 	    public static ProcModule FindProcessModule(string name, bool exactMatch = true)
 	    {
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
-		    if (String.IsNullOrEmpty(name)) return null;
+		    if (string.IsNullOrEmpty(name)) return null;
 		    AttachedProcess.UpdateInformation();
 			foreach (ProcessModule pm in AttachedProcess.ProcessObject.Modules)
 		    {
@@ -1060,7 +1296,7 @@ namespace MiniMem
 		#region Logging
 	    public static void Log(string message,MessageType messageType = MessageType.INFO, bool writeToDebug = true, bool writeToFile = false)
 	    {
-		    if (String.IsNullOrEmpty(message)) return;
+		    if (string.IsNullOrEmpty(message)) return;
 		    ConsoleColor clr = ConsoleColor.White;
 
 		    switch (messageType)
