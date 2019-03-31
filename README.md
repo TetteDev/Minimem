@@ -185,7 +185,7 @@ if (addressFound != IntPtr.Zero) {
 
 ## **Usage Example: Performing a pattern scan using FindPatternMultiple**
 ```cs
-* var signatures = new[]
+var signatures = new[]
 {
 	new Signature("pattern1", "456?89?B"),
 	new Signature("pattern2", "1111111111"),
@@ -196,8 +196,6 @@ if (addressFound != IntPtr.Zero) {
 var result = FindPatternMultiple("module_name", signatures); // Perform scan on a process module
 foreach (var signature in result)
 	Console.WriteLine("Found signature {0} at {1}", signature.Name, signature.FoundOffset);
-*/
-
 ```
 
 ## Optional parameters *refBufferStartAddress* and *resultAbsolute* ##
