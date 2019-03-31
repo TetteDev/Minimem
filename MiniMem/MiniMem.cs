@@ -1202,8 +1202,36 @@ namespace MiniMem
 	    }
 		#endregion
 
+		#region Execute Code
+	    public static void ExecuteCode(string[] mnemonics)
+	    {
+		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) return;
+		    if (mnemonics.Length < 1) return;
+
+		    byte[] assembled = Assemble(mnemonics);
+		    RemoteAllocatedMemory alloc = AllocateMemory(assembled.Length, MemoryProtection.ExecuteReadWrite, AllocationType.Commit);
+		    WriteBytes(alloc.Pointer.ToInt32(), assembled);
+		    IntPtr hThread = Native.CreateRemoteThread(MiniMem.AttachedProcess.ProcessHandle,
+			    IntPtr.Zero,
+			    IntPtr.Zero,
+			    alloc.Pointer,
+			    IntPtr.Zero /* LP PARAMETER  */,
+			    (uint)ThreadCreationFlags.Run,
+			    IntPtr.Zero);
+
+		    if (hThread == IntPtr.Zero)
+		    {
+				FreeMemory(alloc);
+			    return;
+		    }
+		    WaitForSingleObject(hThread, 0xFFFFFFFF);
+		    CloseHandle(hThread);
+			FreeMemory(alloc);
+		}
+		#endregion
+
 		#region Modules
-	    public static ProcModule FindProcessModule(string name, bool exactMatch = true)
+		public static ProcModule FindProcessModule(string name, bool exactMatch = true)
 	    {
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 		    if (string.IsNullOrEmpty(name)) return null;
