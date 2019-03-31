@@ -14,12 +14,14 @@ using static MiniMem.Constants;
 using static MiniMem.Helper;
 using static MiniMem.Native;
 using Byte = MiniMem.Constants.Byte;
+using ThreadState = System.Threading.ThreadState;
 
 namespace MiniMem
 {
 	public class MiniMem
     {
 	    public static List<CallbackObject> ActiveCallbacks = new List<CallbackObject>();
+	    public static Thread CallbackThread = null;
 
 		public class AttachedProcess
 	    {
@@ -138,13 +140,30 @@ namespace MiniMem
 
 		    }
 
-			internal static void Detach()
+		    public static void Detach(bool clearCallbacks = true)
 		    {
 			    try
 			    {
-				    CloseHandle(ProcessHandle);
+				    if (ProcessHandle != IntPtr.Zero)
+						CloseHandle(ProcessHandle);
 				    ProcessHandle = IntPtr.Zero;
 				    ProcessObject = null;
+
+				    CallbackThread?.Abort();
+				    if (CallbackThread?.ThreadState != ThreadState.AbortRequested) return;
+				    while (CallbackThread?.ThreadState != ThreadState.Aborted)
+					    Thread.Sleep(5);
+
+				    CallbackThread = null;
+				    if (clearCallbacks)
+				    {
+					    for (int i = ActiveCallbacks.Count - 1; i >= 0; i--)
+					    {
+							ActiveCallbacks[i].class_TrampolineInfo.Restore();
+						    ActiveCallbacks.Remove(ActiveCallbacks[i]);
+					    }
+				    }
+				    Debug.WriteLine("Detach routine finished and callback thread has been aborted!");
 			    }
 			    catch
 			    {
@@ -167,8 +186,8 @@ namespace MiniMem
 		    {
 			    if (AttachedProcess.ProcessHandle != IntPtr.Zero)
 			    {
-					Thread t = new Thread(Helper.CallbackLoop);
-					t.Start();
+				    CallbackThread = new Thread(CallbackLoop);
+				    CallbackThread.Start();
 				}
 					
 		    }
@@ -194,8 +213,8 @@ namespace MiniMem
 		    {
 				if (AttachedProcess.ProcessHandle != IntPtr.Zero)
 				{
-					Thread t = new Thread(Helper.CallbackLoop);
-					t.Start();
+					CallbackThread = new Thread(CallbackLoop);
+					CallbackThread.Start();
 				}
 			}
 	    }
@@ -907,6 +926,12 @@ namespace MiniMem
 			}
 			#endregion
 			#region Check - Initial mnemonics are valid
+
+			if (mnemonics.Length < 1)
+			{
+				mnemonics = new [] { "use32", };
+			}
+
 			try
 			{
 				byte[] tmp = FasmNet.Assemble(mnemonics);
@@ -953,6 +978,7 @@ namespace MiniMem
 
 			if (implementRegisterDump)
 			{
+				//                               8 32bit registers 4byte each OR sizeof(Registers)
 				registerStructurePointer = AllocateMemory(32 /* 8 * 4 */, MemoryProtection.ExecuteReadWrite, AllocationType.Commit | AllocationType.Reserve);
 				if (registerStructurePointer.Pointer == IntPtr.Zero)
 					throw new Exception("Failed allocating memory inside the process!\nTrampoline cannot be implemented!");

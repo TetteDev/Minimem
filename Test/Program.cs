@@ -1,12 +1,7 @@
 ﻿using System;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Threading;
+
 using static MiniMem.Constants;
-using MiniMem;
-using static MiniMem.Helper;
 using Mem = MiniMem.MiniMem;
-using System.Windows.Forms;
 
 namespace Test
 {
@@ -23,24 +18,23 @@ namespace Test
 			CallbackObject obj;
 			CallbackDelegate CodeExecutedEvent = MyCallbackEvent;
 
+			IntPtr addr = Mem.FindPatternSingle(Mem.FindProcessModule("game.bin", false), "33 FF 39 78 08 0F 8E ?? ?? ?? ?? 8B CE E8 ?? ?? ?? ?? 84 C0");
+			if (addr == IntPtr.Zero) return;
 			bool result = Mem.CreateTrampolineAndCallback(
-				new IntPtr(0x02B28E54), // Target Address,
+				addr, // Target Address,
 				5, // targetAddressInstructionCount
-				new[] // Mnemonics to be injected
+				new string [] // Mnemonics to be injected
 				{
-					"use32",
-					"push 00",
-					"push 01",
-					"call ecx",
+					
 					// here will our register dump mnemonic be placed is ImplementRegisterDump is true
 					// Here will the inc instruction will be placed in our case if ImplementCallback is true
 					// Here will the jump back out to (Target Address + 5) be placed
 				},
 				CodeExecutedEvent, // codeExecutedEventDelegate
 				out  obj,// Created Callback Object
-				"MY_IDENTIFIER",
+				"CharWnd",
 				true, // ShouldSuspend
-				false, // PreserveOriginalInstruction
+				true, // PreserveOriginalInstruction
 				true, // ImplementCallback
 				true // ImplementRegisterDump
 			);
@@ -49,17 +43,10 @@ namespace Test
 			{
 				Mem.ActiveCallbacks.Add(obj);
 
-				while (true)
-				{
-					
-					Thread.Sleep(1);
-				}
+				Console.ReadLine();
+				Mem.Detach();
 			}
-
 			
-
-			
-			int z = 1;
 			/*
 			Thread t = new Thread(CallbackLoop);
 			t.Start();
@@ -96,8 +83,10 @@ namespace Test
 			
 			if (callbackObject == null) return;
 			CallbackObject obj = (CallbackObject)callbackObject;
-			
-			Console.WriteLine($"Code cave at 0x{obj.class_TrampolineInfo.TrampolineDestination:X} was executed and our callback event was called!");
+
+
+			Registers r = Mem.ReadMemory<Registers>(obj.class_TrampolineInfo.optionalRegisterStructPointer.ToInt64());
+			Console.WriteLine($"EAX VALUE: 0x{r.EAX:X}");
 		}
 
 	}

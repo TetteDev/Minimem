@@ -51,13 +51,12 @@ namespace MiniMem
 			{
 				if (MiniMem.ActiveCallbacks.Count < 1 || MiniMem.AttachedProcess.ProcessHandle == IntPtr.Zero)
 				{
-					Thread.Sleep(25);
+					Thread.Sleep(1000);
 					continue;
 				}
 
-#if DEBUG
-				Console.WriteLine($"{MiniMem.ActiveCallbacks.Count} registered items in Callback Monitor");
-#endif
+
+				Debug.WriteLine($"[CALLBACK MONITOR] {MiniMem.ActiveCallbacks.Count} registered item(s) in Callback Monitor");
 
 				for (int i = MiniMem.ActiveCallbacks.Count - 1; i >= 0; i--)
 				{
@@ -68,9 +67,6 @@ namespace MiniMem
 					uint r = MiniMem.ReadMemory<uint>(cObj.ptr_HitCounter.ToInt64());
 					if (r != cObj.LastValue)
 					{
-#if DEBUG
-						//Mem.Log($"Callback triggered for callback object '{cObj.str_CallbackIdentifier}' (HitCount: {r})");
-#endif
 						MiniMem.ActiveCallbacks.Remove(cObj);
 
 						cObj.LastValue = r;
@@ -78,7 +74,7 @@ namespace MiniMem
 						cObj.ObjectCallback?.Invoke(cObj);
 					}
 				}
-				Thread.Sleep(750);
+				Thread.Sleep(500);
 			}
 		}
 
@@ -89,27 +85,27 @@ namespace MiniMem
 			static MarshalCache()
 			{
 				Type typeFromHandle = typeof(T);
-				MarshalCache<T>.TypeCode = Type.GetTypeCode(typeFromHandle);
+				TypeCode = Type.GetTypeCode(typeFromHandle);
 				if (typeFromHandle == typeof(bool))
 				{
-					MarshalCache<T>.Size = 1;
-					MarshalCache<T>.RealType = typeFromHandle;
+					Size = 1;
+					RealType = typeFromHandle;
 				}
 				else if (typeFromHandle.IsEnum)
 				{
 					Type enumUnderlyingType = typeFromHandle.GetEnumUnderlyingType();
-					MarshalCache<T>.Size = Marshal.SizeOf(enumUnderlyingType);
-					MarshalCache<T>.RealType = enumUnderlyingType;
-					MarshalCache<T>.TypeCode = Type.GetTypeCode(MarshalCache<T>.RealType);
+					Size = Marshal.SizeOf(enumUnderlyingType);
+					RealType = enumUnderlyingType;
+					TypeCode = Type.GetTypeCode(RealType);
 				}
 				else
 				{
-					MarshalCache<T>.RealType = typeFromHandle;
-					MarshalCache<T>.Size = Marshal.SizeOf(MarshalCache<T>.RealType);
+					RealType = typeFromHandle;
+					Size = Marshal.SizeOf(RealType);
 				}
-				MarshalCache<T>.IsIntPtr = (MarshalCache<T>.RealType == typeof(IntPtr));
-				MarshalCache<T>.SizeU = (uint)MarshalCache<T>.Size;
-				MarshalCache<T>.TypeRequireMarshal = MarshalCache<T>.IsTypeRequireMarshal(MarshalCache<T>.RealType);
+				IsIntPtr = (RealType == typeof(IntPtr));
+				SizeU = (uint)Size;
+				TypeRequireMarshal = IsTypeRequireMarshal(RealType);
 			}
 
 			// Token: 0x0600008C RID: 140 RVA: 0x00005AB4 File Offset: 0x00004EB4

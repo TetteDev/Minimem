@@ -304,6 +304,11 @@ namespace MiniMem
 				}
 				return new IntPtr(Pointer.ToInt32() + currentOffset);
 			}
+
+			public void Free()
+			{
+				MiniMem.FreeMemory(Pointer, Size);
+			}
 		}
 
 		public class CallbackObject
@@ -334,6 +339,12 @@ namespace MiniMem
 			public byte[] NewBytes = null;
 
 			public bool SuspendNeeded = false;
+
+			public void Restore()
+			{
+				MiniMem.WriteBytes(TrampolineOrigin, OriginalBytes);
+				AllocatedMemory.Free();	
+			}
 		}
 
 		public class ProcModule
