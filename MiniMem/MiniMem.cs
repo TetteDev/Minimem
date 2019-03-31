@@ -139,21 +139,33 @@ namespace MiniMem
 
 		    }
 
-		    public static void Detach(bool clearCallbacks = true)
+		    /// <summary>
+		    /// Internal method for detaching from the currently attached process
+		    /// </summary>
+		    /// <param name="clearCallbacks">If set to true, all detours will be cleared and restored upon detaching</param>
+		    /// <returns></returns>
+			public static void Detach(bool clearCallbacks = true)
 		    {
 			    try
 			    {
-				    if (ProcessHandle != IntPtr.Zero)
-						CloseHandle(ProcessHandle);
-				    ProcessHandle = IntPtr.Zero;
+				    IntPtr backup = ProcessHandle;
+				    if (CallbackThread != null && CallbackThread.ThreadState == ThreadState.Running)
+				    {
+					    bCallbackThreadExitFlag = true;
+				    }
+
+				    while (bCallbackThreadExitFlag)
+				    {
+					    Thread.Sleep(10);
+				    }
+
+				    Log("Callback thread aborted successfully!");
+					Thread.Sleep(750);
+					CallbackThread = null;
+				    bCallbackThreadExitFlag = false;
+
 				    ProcessObject = null;
 
-				    CallbackThread?.Abort();
-				    if (CallbackThread?.ThreadState != ThreadState.AbortRequested) return;
-				    while (CallbackThread?.ThreadState != ThreadState.Aborted)
-					    Thread.Sleep(5);
-
-				    CallbackThread = null;
 				    if (clearCallbacks)
 				    {
 					    for (int i = ActiveCallbacks.Count - 1; i >= 0; i--)
@@ -162,7 +174,11 @@ namespace MiniMem
 						    ActiveCallbacks.Remove(ActiveCallbacks[i]);
 					    }
 				    }
-				    Debug.WriteLine("Detach routine finished and callback thread has been aborted!");
+
+				    ProcessHandle = IntPtr.Zero;
+					if (backup != IntPtr.Zero)
+					    CloseHandle(backup);
+					Debug.WriteLine("Detach routine finished and callback thread has been aborted!");
 			    }
 			    catch
 			    {
@@ -172,6 +188,12 @@ namespace MiniMem
 	    }
 
 		#region Attaching/Detaching
+
+		/// <summary>
+		/// Attaches to a remote process
+		/// </summary>
+		/// <param name="processId">The target process process id</param>
+		/// <returns>bool</returns>
 		public static bool Attach(int processId)
 	    {
 		    try
@@ -192,7 +214,13 @@ namespace MiniMem
 		    }
 		   
 	    }
-	    public static bool Attach(string processName)
+
+		/// <summary>
+		/// Attaches to a remote process
+		/// </summary>
+		/// <param name="processName">The target process name</param>
+		/// <returns>bool</returns>
+		public static bool Attach(string processName)
 	    {
 		    try
 		    {
@@ -217,10 +245,17 @@ namespace MiniMem
 				}
 			}
 	    }
-	    public static void Detach(bool clearCallbacks = true)
+
+		/// <summary>
+		/// Detaches from the currently attached process
+		/// </summary>
+		/// <param name="clearCallbacks">If set to true, all detours will be cleared and restored upon detaching</param>
+		/// <returns></returns>
+		public static void Detach(bool clearCallbacks = true)
 	    {
 		    AttachedProcess.Detach(clearCallbacks);
 	    }
+
 		#endregion
 
 		#region Pattern Scanner
@@ -332,7 +367,14 @@ namespace MiniMem
 		}
 		#endregion
 
-	    public static IntPtr FindPatternSingle(byte[] buffer, string pattern, int refBufferStartAddress = 0)
+		/// <summary>
+		/// Searches byte[] for a sequence of bytes
+		/// </summary>
+		/// <param name="buffer">The buffer to search through</param>
+		/// /// <param name="pattern">The IDA styled pattern</param>
+		/// /// <param name="refBufferStartAddress">None</param>
+		/// <returns>IntPtr</returns>
+		public static IntPtr FindPatternSingle(byte[] buffer, string pattern, int refBufferStartAddress = 0)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 		    if (buffer.Length < 1 || string.IsNullOrEmpty(pattern)) return IntPtr.Zero;
@@ -385,7 +427,15 @@ namespace MiniMem
 		    }
 		    return IntPtr.Zero;
 	    }
-	    public static IntPtr FindPatternSingle(ProcModule processModule, string pattern, bool resultAbsolute = true)
+
+		/// <summary>
+		/// Searches byte[] for a sequence of bytes
+		/// </summary>
+		/// <param name="processModule">ProcModule instance containing the start and end region for the desired process module</param>
+		/// /// <param name="pattern">The IDA styled pattern</param>
+		/// /// <param name="resultAbsolute">None</param>
+		/// <returns>IntPtr</returns>
+		public static IntPtr FindPatternSingle(ProcModule processModule, string pattern, bool resultAbsolute = true)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			if (processModule == null) return IntPtr.Zero;
@@ -395,7 +445,16 @@ namespace MiniMem
 		    }
 			return String.IsNullOrEmpty(pattern) ? IntPtr.Zero : FindPatternSingle(ReadBytes(processModule.BaseAddress.ToInt64(), (int)processModule.Size), pattern, 0);
 		}
-	    public static IntPtr FindPatternSingle(long startAddress, long endAddress, string pattern, bool resultAbsolute = true)
+
+		/// <summary>
+		/// Searches byte[] for a sequence of bytes
+		/// </summary>
+		/// <param name="startAddress">The address to start the search from</param>
+		/// /// <param name="endAddress">The address where to end the search</param>
+		/// /// /// <param name="pattern">The IDA styled pattern</param>
+		/// /// <param name="resultAbsolute">None</param>
+		/// <returns>IntPtr</returns>
+		public static IntPtr FindPatternSingle(long startAddress, long endAddress, string pattern, bool resultAbsolute = true)
 	    {
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			if (startAddress > endAddress) return IntPtr.Zero;
@@ -469,6 +528,12 @@ namespace MiniMem
 		#endregion
 
 		#region Read Methods
+		/// <summary>
+		/// Reads n amount of bytes from the remote process
+		/// </summary>
+		/// <param name="address">Start address where to read the bytes from</param>
+		/// <param name="byteCount">Amount of bytes to read</param>
+		/// <returns>byte[]</returns>
 		public static byte[] ReadBytes(long address, int byteCount)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
@@ -476,6 +541,15 @@ namespace MiniMem
 			ReadProcessMemory((int)AttachedProcess.ProcessHandle, (int)address, buffer, byteCount, ref m_iNumberOfBytesRead);
 			return buffer;
 		}
+
+		/// <summary>
+		/// Read a string from memory
+		/// </summary>
+		/// <param name="address">Start address where to read the string from</param>
+		/// <param name="defaultEncoding">Which encoding to use</param>
+		/// <param name="maxLength">Cuts the string this amount of characters</param>
+		/// <param name="zeroTerminated">Stops the read at the first occurence of a null char</param>
+		/// <returns>string</returns>
 		public static string ReadString(long address, Encoding defaultEncoding = default(Encoding), int maxLength = 256, bool zeroTerminated = false)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
@@ -485,6 +559,7 @@ namespace MiniMem
 			ReadProcessMemory((int)AttachedProcess.ProcessHandle, (int)address, buff, buff.Length, ref numBytesRead);
 			return zeroTerminated ? defaultEncoding.GetString(buff).Split('\0')[0] : Encoding.UTF8.GetString(buff);
 		}
+
 		public static T ReadMultiLevelPointer<T>(long baseAddress, params int[] offsets) where T : struct
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
@@ -496,6 +571,12 @@ namespace MiniMem
 			}
 			return ReadMemory<T>((int)temp + (int)offsets[offsets.Length - 1]);
 		}
+
+		/// <summary>
+		/// Use Marshalling to read any value type from memory
+		/// </summary>
+		/// <param name="address">Start address where to read the bytes from that will then be marshalled into the type T</param>
+		/// <returns>T</returns>
 		public static T ReadMemory<T>(long address) where T : struct
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
@@ -516,20 +597,35 @@ namespace MiniMem
 		#endregion
 
 		#region Write Methods
-		public static void WriteBytes(long address, byte[] buffer)
+		/// <summary>
+		/// Write byte[] to a specific address
+		/// </summary>
+		/// <param name="address">The address to write the bytes to</param>
+		/// <param name="buffer">Byte array containing the bytes to write to the desired address</param>
+		/// <returns>bool</returns>
+		public static bool WriteBytes(long address, byte[] buffer)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
-			WriteProcessMemory((int)AttachedProcess.ProcessHandle, (int)address, buffer, buffer.Length, out m_iNumberOfBytesWritten);
+			return WriteProcessMemory((int)AttachedProcess.ProcessHandle, (int)address, buffer, buffer.Length, out m_iNumberOfBytesWritten);
 		}
-		public static void WriteString(long address, string value, Encoding defaultEncoding = default(Encoding))
+
+		/// <summary>
+		/// Writes string to a desired address in memory
+		/// </summary>
+		/// <param name="address">The address to write the string to</param>
+		/// <param name="value">The string you want to write</param>
+		/// <param name="defaultEncoding">The encoding to use</param>
+		/// <returns>bool</returns>
+		public static bool WriteString(long address, string value, Encoding defaultEncoding = default(Encoding))
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
-			if (value.Length < 1) return;
+			if (value.Length < 1) return false;
 			if (defaultEncoding == null) defaultEncoding = Encoding.UTF8;
 			var memory = new byte[value.Length];
 			memory = defaultEncoding.GetBytes(value);
-			WriteProcessMemory((int)AttachedProcess.ProcessHandle, (int)address, memory, memory.Length, out var numBytesRead);
+			return WriteProcessMemory((int)AttachedProcess.ProcessHandle, (int)address, memory, memory.Length, out var numBytesRead);
 		}
+
 		public static void WriteMemoryProtected<T>(long address, object value) where T : struct
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
@@ -538,7 +634,7 @@ namespace MiniMem
 			WriteProcessMemory((int)AttachedProcess.ProcessHandle, (int)address, buffer, buffer.Length, out m_iNumberOfBytesWritten);
 			VirtualProtectEx(AttachedProcess.ProcessHandle, new IntPtr(address), Marshal.SizeOf(value), oldProtection, out oldProtection);
 		}
-		public static void WriteMultiLevelPointer<T>(long baseAddress, object value, params int[] offsets) where T : struct
+		public static bool WriteMultiLevelPointer<T>(long baseAddress, object value, params int[] offsets) where T : struct
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			if (offsets.Length == 0)
@@ -548,14 +644,22 @@ namespace MiniMem
 			else
 			{
 				IntPtr final = ReadMultiLevelPointer<IntPtr>(baseAddress, offsets);
-				WriteMemory<T>((int)final, value);
+				return WriteMemory<T>((int)final, value);
 			}
+			return false;
 		}
-		public static void WriteMemory<T>(long address, object value) where T : struct
+
+		/// <summary>
+		/// Use Marshalling to write any value type to memory
+		/// </summary>
+		/// <param name="address">Start address where to write the bytes from that will then be marshalled into the type T</param>
+		/// <param name="value">The value of type T to write</param>
+		/// <returns>bool</returns>
+		public static bool WriteMemory<T>(long address, object value) where T : struct
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			var buffer = StructureToByteArray(value);
-			WriteProcessMemory((int)AttachedProcess.ProcessHandle, (int)address, buffer, buffer.Length, out m_iNumberOfBytesWritten);
+			return WriteProcessMemory((int)AttachedProcess.ProcessHandle, (int)address, buffer, buffer.Length, out m_iNumberOfBytesWritten);
 		}
 		#endregion
 
@@ -717,6 +821,7 @@ namespace MiniMem
 
 		    return newInstance;
 	    }
+
 
 		public static bool CreateTrampolineAndCallback(IntPtr targetAddress, int targetAddressInstructionCount, string[] mnemonics, CallbackDelegate codeExecutedEventDelegate, out CallbackObject createdObject, string identifier = "", bool shouldSuspend = true, bool preserveOriginalInstruction = false, bool implementCallback = true, bool implementRegisterDump = true)
 		{
@@ -968,7 +1073,13 @@ namespace MiniMem
 		#endregion
 
 		#region Process Handles Specific Operations
-	    public static bool TryFindDeleteHandle(string strHandleType, string strHandleName)
+		/// <summary>
+		/// Try closing handle in remote process by its Handle type and the Handle name
+		/// </summary>
+		/// <param name="strHandleType">The handle type, eg "Mutant" etc</param>
+		/// <param name="strHandleName">The handle name</param>
+		/// <returns>bool</returns>
+		public static bool TryFindDeleteHandle(string strHandleType, string strHandleName)
 	    {
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero || AttachedProcess.ProcessObject == null) return false;
 		    if (!AttachedProcess.IsRunning()) return false;
@@ -995,6 +1106,10 @@ namespace MiniMem
 		#endregion
 
 		#region Suspend Process
+	    /// <summary>
+	    /// Suspends a remote process
+	    /// </summary>
+	    /// <returns></returns>
 		public static void SuspendProcess()
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) return;
@@ -1017,7 +1132,12 @@ namespace MiniMem
 			    CloseHandle(pOpenThread);
 		    }
 		}
-	    public static void ResumeProcess()
+
+	    /// <summary>
+	    /// Resumes a remote process
+	    /// </summary>
+	    /// <returns></returns>
+		public static void ResumeProcess()
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) return;
 			var process = AttachedProcess.ProcessObject;
@@ -1046,13 +1166,28 @@ namespace MiniMem
 		#endregion
 
 		#region Allocate Memory 
-	    public static IntPtr AllocateMemory(uint size, uint protectionFlags, uint allocationFlags)
+		/// <summary>
+		/// Allocates some memory in the remote process
+		/// </summary>
+		/// <param name="size">Amount of memory to allocate</param>
+		/// <param name="protectionFlags">See "MemoryProtection" enum: https://www.pinvoke.net/default.aspx/kernel32.virtualalloc </param>
+		/// <param name="allocationFlags">See "AllocationType" enum: https://www.pinvoke.net/default.aspx/kernel32.virtualalloc </param>
+		/// <returns>IntPtr</returns>
+		public static IntPtr AllocateMemory(uint size, uint protectionFlags, uint allocationFlags)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 		    if (!AttachedProcess.IsRunning()) throw new Exception("Game is not running anymore!");
 			return VirtualAllocEx(AttachedProcess.ProcessHandle, IntPtr.Zero, new IntPtr(size), allocationFlags, protectionFlags);
 		}
-	    public static RemoteAllocatedMemory AllocateMemory(int size, MemoryProtection protectionFlags = MemoryProtection.ExecuteReadWrite, AllocationType allocationFlags = AllocationType.Commit | AllocationType.Reserve)
+
+		/// <summary>
+		/// Allocates some memory in the remote process
+		/// </summary>
+		/// <param name="size">Amount of memory to allocate</param>
+		/// <param name="protectionFlags">See "MemoryProtection" enum: https://www.pinvoke.net/default.aspx/kernel32.virtualalloc </param>
+		/// <param name="allocationFlags">See "AllocationType" enum: https://www.pinvoke.net/default.aspx/kernel32.virtualalloc </param>
+		/// <returns>RemoteAllocatedMemory Instance</returns>
+		public static RemoteAllocatedMemory AllocateMemory(int size, MemoryProtection protectionFlags = MemoryProtection.ExecuteReadWrite, AllocationType allocationFlags = AllocationType.Commit | AllocationType.Reserve)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			if (!AttachedProcess.IsRunning()) throw new Exception("Game is not running anymore!");
@@ -1068,7 +1203,12 @@ namespace MiniMem
 		    return ret;
 	    }
 
-	    public static bool FreeMemory(RemoteAllocatedMemory memoryItem)
+		/// <summary>
+		/// Tries to free allocated memory in remote process
+		/// </summary>
+		/// <param name="memoryItem">Not null instace of RemoteAllocatedMemory object</param>
+		/// <returns>bool</returns>
+		public static bool FreeMemory(RemoteAllocatedMemory memoryItem)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 		    if (!AttachedProcess.IsRunning()) return false;
@@ -1081,15 +1221,27 @@ namespace MiniMem
 			    return false;
 		    }
 	    }
-	    public static void FreeMemory(IntPtr lpBase, int size)
+
+		/// <summary>
+		/// Tries to free allocated memory in remote process
+		/// </summary>
+		/// <param name="lpBase">Base address of allocated region</param>
+		/// <param name="size">Amount of memory to to free</param>
+		/// <returns>bool</returns>
+		public static bool FreeMemory(IntPtr lpBase, int size)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
-			VirtualFreeEx(AttachedProcess.ProcessHandle, lpBase, size, 0x8000);
+			return VirtualFreeEx(AttachedProcess.ProcessHandle, lpBase, size, 0x8000);
 	    }
 		#endregion
 
 		#region Execute Code
-	    public static void ExecuteCode(string[] mnemonics)
+		/// <summary>
+		/// Converts 32bit Flat assembler valid mnemonics into shellcode and executes said shellcode
+		/// </summary>
+		/// <param name="mnemonics">Valid 32bit flat assembler mnemonics</param>
+		/// <returns></returns>
+		public static void ExecuteCode(string[] mnemonics)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) return;
 		    if (mnemonics.Length < 1) return;
@@ -1117,6 +1269,12 @@ namespace MiniMem
 		#endregion
 
 		#region Modules
+		/// <summary>
+		/// Finds a specified process module inside a remote process by its module name
+		/// </summary>
+		/// <param name="name">Module name</param>
+		/// <param name="exactMatch">None</param>
+		/// <returns>ProcModule</returns>
 		public static ProcModule FindProcessModule(string name, bool exactMatch = true)
 	    {
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
@@ -1160,7 +1318,15 @@ namespace MiniMem
 		#endregion
 
 		#region Logging
-	    public static void Log(string message,MessageType messageType = MessageType.INFO, bool writeToDebug = true, bool writeToFile = false)
+		/// <summary>
+		/// Writes a neatly formatted line to the Console
+		/// </summary>
+		/// <param name="message">The text to write</param>
+		/// <param name="messageType">The type of message</param>
+		/// <param name="writeToDebug">Also write to Debug output</param>
+		/// <param name="writeToFile">Also write to File</param>
+		/// <returns></returns>
+		public static void Log(string message,MessageType messageType = MessageType.INFO, bool writeToDebug = true, bool writeToFile = false)
 	    {
 		    if (string.IsNullOrEmpty(message)) return;
 		    ConsoleColor clr = ConsoleColor.White;
@@ -1203,37 +1369,6 @@ namespace MiniMem
 		    }
 			Console.ResetColor();
 	    }
-
-		#endregion
-
-		#region Misc
-		public static void PrintProperties<T>(T myObj, bool isAddresses = true)
-	    {
-		    foreach (var prop in myObj.GetType().GetProperties())
-		    {
-			    Console.WriteLine(prop.Name + ": " + prop.GetValue(myObj, null));
-		    }
-
-		    foreach (var field in myObj.GetType().GetFields())
-		    {
-			    if (isAddresses)
-			    {
-				    Console.WriteLine(field.Name + ": 0x" + ((int)field.GetValue(myObj)).ToString("X"));
-			    }
-			    else
-			    {
-				    Console.WriteLine(field.Name + ": " + field.GetValue(myObj));
-			    }
-		    }
-	    }
-		public static int GetOffset<T>(T structObject, string offsetname)
-		{
-			if (structObject == null) throw new NullReferenceException(nameof(structObject) + " was null!");
-
-			IntPtr tmp = Marshal.OffsetOf(typeof(T), offsetname);
-
-			return Marshal.OffsetOf(typeof(T), offsetname).ToInt32();
-		}
 		#endregion
 	}
 }

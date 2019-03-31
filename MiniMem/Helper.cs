@@ -47,6 +47,8 @@ namespace MiniMem
 
 	public class Helper
 	{
+		public static bool bCallbackThreadExitFlag = false;
+
 		public static string Format(string pattern)
 		{
 			var length = pattern.Length;
@@ -162,7 +164,7 @@ namespace MiniMem
 
 		public static void CallbackLoop()
 		{
-			while (true)
+			while (!bCallbackThreadExitFlag)
 			{
 				if (MiniMem.ActiveCallbacks.Count < 1 || MiniMem.AttachedProcess.ProcessHandle == IntPtr.Zero)
 				{
@@ -170,15 +172,18 @@ namespace MiniMem
 					continue;
 				}
 
-
 				Debug.WriteLine($"[CALLBACK MONITOR] {MiniMem.ActiveCallbacks.Count} registered item(s) in Callback Monitor");
 
 				for (int i = MiniMem.ActiveCallbacks.Count - 1; i >= 0; i--)
 				{
+					if (bCallbackThreadExitFlag)
+						break;
+
 					CallbackObject cObj = MiniMem.ActiveCallbacks[i];
 					if (cObj.ObjectCallback == null) continue;
 					if (cObj.ptr_HitCounter == IntPtr.Zero) continue;
 
+					if (MiniMem.AttachedProcess.ProcessHandle == IntPtr.Zero) continue;
 					uint r = MiniMem.ReadMemory<uint>(cObj.ptr_HitCounter.ToInt64());
 					if (r != cObj.LastValue)
 					{
@@ -189,8 +194,13 @@ namespace MiniMem
 						cObj.ObjectCallback?.Invoke(cObj);
 					}
 				}
+				if (bCallbackThreadExitFlag)
+					break;
+					
 				Thread.Sleep(500);
 			}
+
+			bCallbackThreadExitFlag = false;
 		}
 
 		public class MarshalCache<T>
