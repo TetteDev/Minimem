@@ -224,77 +224,6 @@ namespace MiniMem
 	    }
 		#endregion
 
-		#region ValueFreezer
-		public static void StartFreezer()
-	    {
-		    if (Freezer.flagThreadIsRunning) return;
-		    Thread freezeThread = new Thread(Freezer.FreezeLoop);
-			freezeThread.Start();
-	    }
-	    public static void StopFreezer()
-	    {
-		    if (!Freezer.flagThreadIsRunning) return;
-
-		    Freezer.flagTerminateThread = true;
-	    }
-	    public static void AddFreezeValue(long address, string identifier, string valuetype, object value)
-	    {
-		    FreezeItem fr = new FreezeItem()
-		    {
-			    Address = address,
-			    Identifier = identifier,
-			    ValueType = valuetype,
-			    Value = value
-		    };
-
-		    if (!Freezer.FreezeCollection.Contains(fr))
-		    {
-			    Freezer.FreezeCollection.Add(fr);
-		    }
-		    else
-		    {
-			    FreezeItem existing = Freezer.FreezeCollection.FirstOrDefault(x => x.Identifier == identifier);
-			    if (existing == null)
-			    {
-				    Freezer.FreezeCollection.Add(fr);
-			    }
-			    else
-			    {
-				    if (existing.Value == value) return;
-				    Freezer.FreezeCollection.Remove(existing); // Remove old
-				    Freezer.FreezeCollection.Add(fr); // Add new
-			    }
-		    }
-	    }
-	    public static async Task RemoveFreezeValue(string identifier, int maxRetries = 5)
-	    {
-		    FreezeItem found = Freezer.FreezeCollection.FirstOrDefault(x => x.Identifier == identifier);
-		    if (found == null) return;
-
-		    int retriesDone = 0;
-		    try
-		    {
-			    while (retriesDone < maxRetries)
-			    {
-				    if (!Freezer.FreezeCollection.Remove(found))
-				    {
-					    await Task.Delay(250);
-				    }
-				    else
-				    {
-						Debug.WriteLine("Successfully removed item with identifier '" + identifier + "' from freezelist!");
-					    break;
-				    }
-				    retriesDone++;
-			    }
-		    }
-		    catch
-		    {
-			    Debug.WriteLine("Failed " + maxRetries + " time(s) to remove item from list!");
-		    }
-	    }
-	    #endregion
-
 		#region Pattern Scanner
 		private static string Format(string pattern)
 		{
@@ -745,7 +674,6 @@ namespace MiniMem
 		#endregion
 
 		#region Detouring 
-		// Pass this object to your thread
 	    public static CallbackObject CreateCallback(TrampolineInstance trampolineInstance, string identifier = "")
 	    {
 		    if (trampolineInstance == null) return null;
