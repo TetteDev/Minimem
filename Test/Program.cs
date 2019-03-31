@@ -44,6 +44,7 @@ namespace Test
 			{
 				Mem.ActiveCallbacks.Add(obj);
 
+				
 				Console.ReadLine();
 				Mem.Detach();
 			}
@@ -86,7 +87,7 @@ namespace Test
 			CallbackObject obj = (CallbackObject)callbackObject;
 
 			Registers r = Mem.ReadMemory<Registers>(obj.class_TrampolineInfo.optionalRegisterStructPointer.ToInt64());
-			Console.WriteLine($"EAX VALUE: 0x{r.EAX:X}");
+			Console.WriteLine($"0x{r.EAX:X}");
 		}
 
 	}

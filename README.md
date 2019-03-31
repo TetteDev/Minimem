@@ -390,6 +390,46 @@ namespace Test
 			public int EBP; // 0x24
 			public int ESP; // 0x28
 		}
+        
+                // You dont need to define the structure, as its already defined within the Library
+                // This is just for better visualizing what happens 
+                public class CallbackObject
+		{
+			public IntPtr ptr_HitCounter = IntPtr.Zero;
+			public TrampolineInstance class_TrampolineInfo;
+			public string str_CallbackIdentifier = "";
+
+			public uint LastValue = 0;
+			public CallbackDelegate ObjectCallback;
+		}
+
+                // You dont need to define the structure, as its already defined within the Library
+                // This is just for better visualizing what happens 
+                public class TrampolineInstance
+		{
+			public RemoteAllocatedMemory AllocatedMemory;
+
+			public string Identifier = "";
+
+			public long TrampolineOrigin = -1;
+			public long TrampolineDestination = -1;
+
+			public IntPtr optionalHitCounterPointer = IntPtr.Zero;
+			public IntPtr optionalRegisterStructPointer = IntPtr.Zero;
+
+			public long TrampolineJmpOutAddress = -1;
+			public long TrampolineJmpOutDestination = -1;
+			public byte[] OriginalBytes = null;
+			public byte[] NewBytes = null;
+
+			public bool SuspendNeeded = false;
+
+			public void Restore()
+			{
+				MiniMem.WriteBytes(TrampolineOrigin, OriginalBytes);
+				AllocatedMemory.Free();	
+			}
+		}
 
 
 		[STAThread]
@@ -450,3 +490,229 @@ namespace Test
 ```
 
 ## **(somewhat) In depth Explanation about the different components of the process above**
+Lets assume, you have found and instruction inside a remote process that is related to something of your interest
+In this example, lets assume this instruction accesses the address to your players health
+
+It might look like this.
+
+![alt text](https://i.imgur.com/X7VbJnJ.png "Results")
+
+We will place a detour at the instruction highlighted in green, to dump the value of EDI so we can read the value directly from our C# application
+Select the instruction, and press Show dissasembler
+
+Now we're here
+
+![alt text](https://i.imgur.com/ZFAqsa9.png "Results")
+
+Before moving down, we note down at what address the instruction is at.
+
+**Limitation of jmp hooks: To place the jmp hook we need atleast 5 bytes, We see that the instruction highlighted in green is only 3 bytes, meaning we have to take 2 more bytes. For this we just take the direct next 2 bytes relative from our target instruction**
+
+**The highlighted bytes here are the ones we will overwrite**
+
+![alt text](https://i.imgur.com/6HLcR7W.png "Results")
+
+**Explanation**
+
+The bytes
+```
+8B 4F 08 50 51
+```
+
+will be overwritten and be
+```
+E9 <Address to code cave>
+```
+
+Please note that you can overwrite practically any amount of bytes, **the only limitation as said above is that there is atleast 5 bytes!**
+Note down the amount of bytes we will overwrite (in our case here its 5 bytes)
+
+Now to actually implementing the the detour and its callback, lets look at the function 'CreateTrampolineAndCallback' and its parameters
+
+```cs
+// etc
+// some other code here
+
+CallbackObject obj; // The returned object from function CreateTrampolineAndCallback will be stored in this
+CallbackDelegate CodeExecutedEvent = MyCallbackEvent; // Expects a delegate with signature void(object)
+
+IntPtr targetInstruction = new IntPtr(address to our target instruction); // Fill in this yourself
+
+bool result = Mem.CreateTrampolineAndCallback(
+    targetInstruction, // The target instruction start location where we will place our jmp
+
+    5, // The amount of bytes we are going to overwrite, we determined that we would only need to overwrite 5 bytes
+
+    new string [] // Mnemonics to be injected into our code cave (the trampoline will jump to this code cave and execute this code)
+    {
+        // Feel free to add any custom assembly mnemonics you might need, but if you only look to dump register values at a certain instruction you can pass an empty string[]
+        // like I do here
+
+        // here will our register dump mnemonic be placed is ImplementRegisterDump is true
+        // Here will the inc instruction will be placed in our case if ImplementCallback is true
+        // Here will the jump back out to ('addr' + 5 bytes) be placed
+    },
+    CodeExecutedEvent, // codeExecutedEventDelegate (Points to our method below called 'MyCallbackEvent')
+    out  obj,// Created Callback Object
+
+    "player_struct_detour", // You can name this detour anything you want
+    // as we are kinda detouring and dumping the player structure, we can name it to something related to that 
+
+    true, // This is mostly for not crashing when overwriting the original instruction, you can keep it set at true
+    // Having it on true ensures that while we modify the code of the remote process (adding our detour), no other code wont be executed and the game wont (hopefully) crash
+
+    true, // Having set this to true, will write the original overwritten instructions at the start of our code cave, in most cases you
+    // can have this set to true, more info on when to set it to false can be found if you scroll down a bit
+
+    true, // We want to implement a callback that notifies us when our injected code has been executed, so set parameter ImplementCallback to true
+    true // We want to dump register values, so set parameter ImplementRegisterDump to true
+);
+
+// some other code here
+// etc
+```
+
+The code here is basically exactly what we need to successfully implement a detour and its callback. We will now proceed to call it it, here is a full example of code how we will go about
+
+```cs
+using System;
+using static MiniMem.Constants;
+using Mem = MiniMem.MiniMem;
+
+namespace Test
+{
+	class Program
+	{
+                // You dont need to define the structure, as its already defined within the Library
+                // This is just for better visualizing what happens 
+                [StructLayout(LayoutKind.Sequential)]
+		public struct Registers
+		{
+			public int EAX; // 0x0
+			public int EBX; // 0x4
+			public int ECX; // 0x8
+			public int EDX; // 0x12
+			public int EDI; // 0x16
+			public int ESI; // 0x20
+			public int EBP; // 0x24
+			public int ESP; // 0x28
+		}
+        
+                // You dont need to define the structure, as its already defined within the Library
+                // This is just for better visualizing what happens 
+                public class CallbackObject
+		{
+			public IntPtr ptr_HitCounter = IntPtr.Zero;
+			public TrampolineInstance class_TrampolineInfo;
+			public string str_CallbackIdentifier = "";
+
+			public uint LastValue = 0;
+			public CallbackDelegate ObjectCallback;
+		}
+
+                // You dont need to define the structure, as its already defined within the Library
+                // This is just for better visualizing what happens 
+                public class TrampolineInstance
+		{
+			public RemoteAllocatedMemory AllocatedMemory;
+
+			public string Identifier = "";
+
+			public long TrampolineOrigin = -1;
+			public long TrampolineDestination = -1;
+
+			public IntPtr optionalHitCounterPointer = IntPtr.Zero;
+			public IntPtr optionalRegisterStructPointer = IntPtr.Zero;
+
+			public long TrampolineJmpOutAddress = -1;
+			public long TrampolineJmpOutDestination = -1;
+			public byte[] OriginalBytes = null;
+			public byte[] NewBytes = null;
+
+			public bool SuspendNeeded = false;
+
+			public void Restore()
+			{
+				MiniMem.WriteBytes(TrampolineOrigin, OriginalBytes);
+				AllocatedMemory.Free();	
+			}
+		}
+
+
+		[STAThread]
+		static void Main(string[] args)
+		{
+			if (!Mem.Attach("game.bin"))
+			{
+				Environment.Exit(-1);
+			}
+
+			CallbackObject obj; // The returned object from function CreateTrampolineAndCallback will be stored in this
+			CallbackDelegate CodeExecutedEvent = MyCallbackEvent; // Expects a delegate with signature void(object)
+
+                        IntPtr targetInstruction = new IntPtr(address to our target instruction); // Fill in this yourself
+
+                        bool result = Mem.CreateTrampolineAndCallback(
+                            targetInstruction, // The target instruction start location where we will place our jmp
+
+                            5, // The amount of bytes we are going to overwrite, we determined that we would only need to overwrite 5 bytes
+
+                            new string [] // Mnemonics to be injected into our code cave (the trampoline will jump to this code cave and execute this code)
+                            {
+                                // Feel free to add any custom assembly mnemonics you might need, but if you only look to dump register values at a certain instruction you can pass an empty string[]
+                                // like I do here
+
+                                // here will our register dump mnemonic be placed is ImplementRegisterDump is true
+                                // Here will the inc instruction will be placed in our case if ImplementCallback is true
+                                // Here will the jump back out to ('addr' + 5 bytes) be placed
+                            },
+                            CodeExecutedEvent, // codeExecutedEventDelegate (Points to our method below called 'MyCallbackEvent')
+                            out  obj,// Created Callback Object
+
+                            "player_struct_detour", // You can name this detour anything you want
+                            // as we are kinda detouring and dumping the player structure, we can name it to something related to that 
+
+                            true, // This is mostly for not crashing when overwriting the original instruction, you can keep it set at true
+                            // Having it on true ensures that while we modify the code of the remote process (adding our detour), no other code wont be executed and the game wont (hopefully) crash
+
+                            true, // Having set this to true, will write the original overwritten instructions at the start of our code cave, in most cases you
+                            // can have this set to true, more info on when to set it to false can be found if you scroll down a bit
+
+                            true, // We want to implement a callback that notifies us when our injected code has been executed, so set parameter ImplementCallback to true
+                            true // We want to dump register values, so set parameter ImplementRegisterDump to true
+                        );
+
+			if (obj != null && result) // If the returned object is not null and our function succeeded
+			{
+				Mem.ActiveCallbacks.Add(obj); // Add the newly created object to the Callback monitor thread
+
+				Console.ReadLine(); // Basically keep the program running until the user presses any key
+				Mem.Detach(); // When any key is pressed, detach will as the name says Detach from the remote process
+                                // and Restore any applied Trampolines made 
+			} else 
+                        {
+                            // Something went wrong with adding our callback
+                        }
+		}
+
+		public static void MyCallbackEvent(object callbackObject)
+		{
+			if (callbackObject == null) return; // Always good to have a check for null
+			CallbackObject obj = (CallbackObject)callbackObject; // Cast passed object into an actual CallbackObject type
+                        // Now we said that we knew our structure of interest was stored in register EDI;
+                        // Lets proceed to read the contents of EDI
+
+                        Registers register_Struct = Mem.ReadMemory<Registers>(obj.class_TrampolineInfo.optionalRegisterStructPointer.ToInt64());
+
+                        string strPlayerStructureBaseAddress = $"0x{register_Struct.EDI:X}";
+                        string strPlayerHealthAddress = $"0x{register_Struct.EDI+8:X}";
+
+                        Console.WriteLine(strPlayerStructureBaseAddress); // print this to the console
+		}
+	}
+}
+```
+
+And this is the final output
+
+![alt text](https://i.imgur.com/NoUbuxi.png "Results")
