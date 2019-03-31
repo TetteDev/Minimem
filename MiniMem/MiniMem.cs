@@ -217,9 +217,9 @@ namespace MiniMem
 				}
 			}
 	    }
-	    public static void Detach()
+	    public static void Detach(bool clearCallbacks = true)
 	    {
-		    AttachedProcess.Detach();
+		    AttachedProcess.Detach(clearCallbacks);
 	    }
 		#endregion
 

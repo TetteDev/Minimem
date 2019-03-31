@@ -44,6 +44,26 @@ if (!Mem.Attach("your process name")) {
 4. At this point, you're free to use all the functions inside the the Minimem library.
 
 ## **Notes: To detach from a process, and short explanation what the CallbackThread/ActiveCallbacks is/does**
+### **Detaching from a process**
+
+### **Detach Signature**
+```cs
+public static void Detach(bool clearCallbacks = true)
+```
+
+
+### **Example Usage: Detach**
+```cs
+// Very basic, just call Mem.Detach();
+Mem.Detach(false); 
+
+// Notes
+// Passing true to the detach function will restore all placed detours before detaching from the process
+// in the example here, we pass false for whatever reason
+```
+
+
+## **Some info regarding CreateTrampolineAndCallback()**
 If you have cloned the repository or checking the code from the github page, you might see that upon calling the **Attach(string)** function, you have probably seen that
 it also launches a thread that runs in the background. In most cases you can probably ignore this as unless you use function
 
@@ -52,8 +72,6 @@ public static bool CreateTrampolineAndCallback(IntPtr targetAddress, int targetA
 ```
 
 A deeper explanation on how to use the above mentioned method can be found under section **Examples/Usage**, subsection **Example 10**.
-
-*PLACEHOLDER TEXT (Will update this section later): Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aenean aliquam lectus felis, et porta urna vestibulum vel. Sed finibus pellentesque nisi, finibus dapibus sem consectetur eget. Vivamus at viverra massa. Sed facilisis at enim non finibus. Aenean quis enim a mauris sollicitudin fringilla non ac nulla. Maecenas gravida sem eros, eget accumsan odio cursus vitae. Mauris sollicitudin diam ultricies, tincidunt dui eget, porttitor tortor. Nam ut diam arcu. Nam at porta velit, vitae ornare urna.*
 
 
 # **Examples/Usage**
