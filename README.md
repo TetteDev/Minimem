@@ -708,3 +708,33 @@ namespace Test
 And this is the final output
 
 ![alt text](https://i.imgur.com/NoUbuxi.png "Results")
+
+## **Example 11: Executing shellcode**
+### **Signatures**
+```cs
+public static void ExecuteCode(string[] mnemonics)
+```
+
+## **Example usage: ExecuteCode(string[])**
+```cs
+string[] mnemonics = new string[]
+{
+    "use32",
+    "push 0",
+    $"mov ecx,{new IntPtr(0x7A15B0)}",
+    "call ecx",
+    "add esp,4",
+    "retn",
+};
+
+Mem.ExecuteCode(mnemonics);
+```
+
+
+# **Credits and thanks**
+* Github User: https://github.com/ZenLulz
+* Github Repository: https://github.com/erfg12/memory.dll
+* Github User: https://github.com/erfg12 (Author of repository memory.dll)
+* Github User: https://github.com/hollow87
+
+* Feel free to remind me if I have missed giving anyone credits!
