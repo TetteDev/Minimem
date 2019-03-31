@@ -6,14 +6,6 @@
 4. List Item 4
 
 # **Known Issues/Bugs**
-```cs
-public static void StartFreezer()
-public static void StopFreezer()
-public static void AddFreezeValue(long address, string identifier, string valuetype, object value)
-public static async Task RemoveFreezeValue(string identifier, int maxRetries = 5)
-```
-* **The above mentioned functions are generally not very stable (read: not threadsafe) and are recommended to not be used. I wont provide any example snippets for this as I would rather suggest you create your own method for "Freezing" a value (Like you do with CE). Will remove this on next push**
-
 
 ```cs
 public static T ReadMultiLevelPointer<T>(long baseAddress, params int[] offsets) 
