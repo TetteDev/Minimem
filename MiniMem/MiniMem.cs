@@ -256,21 +256,7 @@ namespace MiniMem
 
 		#region Pattern Scanner
 		#region Main Methods for scanning multiple patterns
-		/*
-		* var signatures = new[]
-		{
-			new Signature("pattern1", "456?89?B"),
-			new Signature("pattern2", "1111111111"),
-			new Signature("pattern3", "AB??EF"),
-		};
-
-		var result = FindPattern(data, signatures);
-		OR
-		var result = FindPattern("modulename", signatures);
-		foreach (var signature in result)
-			Console.WriteLine("Found signature {0} at {1}", signature.Name, signature.FoundOffset);
-		*/
-		public static Signature[] FindPattern(byte[] buffer, Signature[] signatures, bool useParallel = true)
+		public static Signature[] FindPatternMultiple(byte[] buffer, Signature[] signatures, bool useParallel = true)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			var found = new ConcurrentBag<Signature>();
@@ -293,7 +279,7 @@ namespace MiniMem
 
 			return found.ToArray();
 		}
-		public static Signature[] FindPattern(string moduleName, Signature[] signatures, bool useParallel = true)
+		public static Signature[] FindPatternMultiple(string moduleName, Signature[] signatures, bool useParallel = true)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			ProcessModule pm = null;
@@ -335,7 +321,7 @@ namespace MiniMem
 
 			return found.ToArray();
 		}
-		public static Signature[] FindPattern(long startAddress, long endAddress, Signature[] signatures, bool useParallel = true)
+		public static Signature[] FindPatternMultiple(long startAddress, long endAddress, Signature[] signatures, bool useParallel = true)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			byte[] buff = new byte[endAddress - startAddress];
@@ -660,32 +646,16 @@ namespace MiniMem
 		#endregion
 
 		#region Detouring 
-	    public static CallbackObject CreateCallback(TrampolineInstance trampolineInstance, string identifier = "")
-	    {
-		    if (trampolineInstance == null) return null;
-		    if (trampolineInstance.optionalHitCounterPointer == IntPtr.Zero)
-		    {
-#if DEBUG
-			    Console.WriteLine(
-				    "Tried registering a callback on a callback object with a null pointer as the hitcounter pointer!\n");
-#endif
-
-			    return new CallbackObject
-			    {
-				    ptr_HitCounter = IntPtr.Zero,
-				    class_TrampolineInfo = trampolineInstance,
-				    str_CallbackIdentifier = identifier,
-			    };
-			}
-
-		    return new CallbackObject
-		    {
-			    ptr_HitCounter = trampolineInstance.optionalHitCounterPointer,
-				class_TrampolineInfo = trampolineInstance,
-				str_CallbackIdentifier = identifier,
-		    };
-	    }
-	    public static TrampolineInstance CreateTrampolineInstance(long targetInstructionAddress, int instructionCount/*, string[] mnemonics*/, bool shouldSuspend = true, bool preserveOriginalInstruction = true, bool implementCallback = true)
+		/// <summary>
+		/// Creates a basic trampoline/jmp detour at a desired address/instruction
+		/// </summary>
+		/// <param name="targetInstructionAddress">The address where to place the initial jmp</param>
+		/// <param name="instructionCount">The amount of bytes you're over writing at the target address</param>
+		/// <param name="mnemonics">The valid 32bit Flat assembler mnemonics to write into our code cave</param>
+		/// <param name="shouldSuspend">Wether or not the program should suspend the remote process during the procedure</param>
+		/// <param name="preserveOriginalInstruction">If the original overwritten bytes should be prepended at the start of the code cave</param>
+		/// <returns>TrampolineInstance</returns>
+		public static TrampolineInstance CreateTrampoline(long targetInstructionAddress, int instructionCount, string[] mnemonics, bool shouldSuspend = true, bool preserveOriginalInstruction = true)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) return null;
 			if (instructionCount < 5)
@@ -709,18 +679,7 @@ namespace MiniMem
 			if (memoryRegion.Pointer == IntPtr.Zero) throw new Exception("VirtualAllocEx failed allocating memory for the codecave!");
 			TrampolineInstance newInstance = new TrampolineInstance();
 
-			RemoteAllocatedMemory registerStructMemory = AllocateMemory(32, MemoryProtection.ExecuteReadWrite, AllocationType.Commit | AllocationType.Reserve);
-			if (memoryRegion.Pointer == IntPtr.Zero) throw new Exception("VirtualAllocEx failed allocating memory for the register struct");
-		    RemoteAllocatedMemory hitCounter = null;
-
-			if (implementCallback)
-		    {
-				hitCounter = AllocateMemory(sizeof(uint), MemoryProtection.ExecuteReadWrite, AllocationType.Commit | AllocationType.Reserve);
-			    if (hitCounter.Pointer == IntPtr.Zero) throw new Exception("VirtualAllocEx failed allocating memory for the hitcounter address");
-			    WriteMemory<uint>(hitCounter.Pointer.ToInt64(), 0);
-			}
 				
-			
 			List<byte> JMPInBytes = new List<byte> { 0xE9 };
 			// Relative JMP
 			JMPInBytes.AddRange(BitConverter.GetBytes((memoryRegion.Pointer.ToInt32() - (int)targetInstructionAddress) - 5)); // DEST - ORIGIN = Offset to codecave
@@ -747,38 +706,8 @@ namespace MiniMem
 			byte[] codecaveBytes = { };
 			try
 			{
-				if (implementCallback)
-				{
-					codecaveBytes = FasmNet.Assemble(new[]
-					{
-						"use32",
-						$"mov [{registerStructMemory.Pointer}],eax",
-						$"mov [{registerStructMemory.Pointer + 4}],ebx",
-						$"mov [{registerStructMemory.Pointer + 8}],ecx",
-						$"mov [{registerStructMemory.Pointer + 12}],edx",
-						$"mov [{registerStructMemory.Pointer + 16}],edi",
-						$"mov [{registerStructMemory.Pointer + 20}],esi",
-						$"mov [{registerStructMemory.Pointer + 24}],ebp",
-						$"mov [{registerStructMemory.Pointer + 28}],esp",
-						$"inc dword [{hitCounter.Pointer}]", // Increase our hitcounter value by 1
-					});
-				}
-				else
-				{
-					codecaveBytes = FasmNet.Assemble(new[]
-					{
-						"use32",
-						$"mov [{registerStructMemory.Pointer}],eax",
-						$"mov [{registerStructMemory.Pointer + 4}],ebx",
-						$"mov [{registerStructMemory.Pointer + 8}],ecx",
-						$"mov [{registerStructMemory.Pointer + 12}],edx",
-						$"mov [{registerStructMemory.Pointer + 16}],edi",
-						$"mov [{registerStructMemory.Pointer + 20}],esi",
-						$"mov [{registerStructMemory.Pointer + 24}],ebp",
-						$"mov [{registerStructMemory.Pointer + 28}],esp",
-					});
-				}
-				
+				codecaveBytes = FasmNet.Assemble(mnemonics);
+
 			}
 			catch (FasmAssemblerException fex)
 			{
@@ -805,8 +734,8 @@ namespace MiniMem
 			int relativeJumpBackOutAddress = jumpOutInstructionLocation > (int)targetInstructionAddress ? (int)targetInstructionAddress - jumpOutInstructionLocation : jumpOutInstructionLocation - (int)targetInstructionAddress;
 			newInstance.TrampolineJmpOutDestination = relativeJumpBackOutAddress + nopBytes.Length;
 
-		    newInstance.optionalHitCounterPointer = implementCallback && hitCounter.Pointer != IntPtr.Zero ? hitCounter.Pointer : IntPtr.Zero;
-		    newInstance.optionalRegisterStructPointer = registerStructMemory.Pointer;
+		    newInstance.optionalHitCounterPointer = IntPtr.Zero;
+		    newInstance.optionalRegisterStructPointer = IntPtr.Zero;
 
 			List<byte> JMPOutBytes = new List<byte> { 0xE9 };
 			JMPOutBytes.AddRange(BitConverter.GetBytes(relativeJumpBackOutAddress + nopBytes.Length));
@@ -1229,7 +1158,7 @@ namespace MiniMem
 
 		#region Execute Code
 		/// <summary>
-		/// Converts 32bit Flat assembler valid mnemonics into shellcode and executes said shellcode
+		/// Converts 32bit Flat assembler valid mnemonics into shellcode and executes said shellcode inside the remote process
 		/// </summary>
 		/// <param name="mnemonics">Valid 32bit flat assembler mnemonics</param>
 		/// <returns></returns>

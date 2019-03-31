@@ -142,7 +142,13 @@ public static IntPtr FindPatternSingle(ProcModule processModule, string pattern,
 public static IntPtr FindPatternSingle(long startAddress, long endAddress, string pattern, bool resultAbsolute = true)
 ```
 
-## **Usage Example: Performing a pattern scan on a specific module**
+### **FindPatternMultiple Signatures**
+```cs
+public static Signature[] FindPatternMultiple(byte[] buffer, Signature[] signatures, bool useParallel = true)
+public static Signature[] FindPatternMultiple(string moduleName, Signature[] signatures, bool useParallel = true)
+```
+
+## **Usage Example: Performing a pattern scan on a specific module (FindPatternSingle)**
 ```cs
 // There are, as seen from the signatures above, 3 ways to perform a pattern scan on a specific memory region
 // * Assuming you dont know a specific modules starting and ending address, you can fetch those values with the method
@@ -175,6 +181,23 @@ if (addressFound != IntPtr.Zero) {
 
 // NOTE: If you provide a pattern that is not unique so to speak, function FindPatternSingle(ProcModule, string) will ALWAYS only return the first instance of those bytes
 // What I recommend in this case: Improve your pattern so it is unique to exactly locate the specific instruction/function you want.
+```
+
+## **Usage Example: Performing a pattern scan using FindPatternMultiple**
+```cs
+* var signatures = new[]
+{
+	new Signature("pattern1", "456?89?B"),
+	new Signature("pattern2", "1111111111"),
+	new Signature("pattern3", "AB??EF"),
+};
+
+// var result = FindPatternMultiple(data, signatures); // Perform scan on a buffer
+var result = FindPatternMultiple("module_name", signatures); // Perform scan on a process module
+foreach (var signature in result)
+	Console.WriteLine("Found signature {0} at {1}", signature.Name, signature.FoundOffset);
+*/
+
 ```
 
 ## Optional parameters *refBufferStartAddress* and *resultAbsolute* ##
