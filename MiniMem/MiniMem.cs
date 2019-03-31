@@ -149,21 +149,17 @@ namespace MiniMem
 			    try
 			    {
 				    IntPtr backup = ProcessHandle;
-				    if (CallbackThread != null && CallbackThread.ThreadState == ThreadState.Running)
+				    bCallbackThreadExitFlag = true;
+				    if (CallbackThread.Join(5000))
 				    {
-					    bCallbackThreadExitFlag = true;
-				    }
-
-				    while (bCallbackThreadExitFlag)
+					    bCallbackThreadExitFlag = false;
+					    Log("Callback thread aborted successfully!");
+					}
+				    else
 				    {
-					    Thread.Sleep(10);
+					    Debug.WriteLine("Callback thread did not .Join() within the set time span (5000 ms)");
 				    }
-
-				    Log("Callback thread aborted successfully!");
-					Thread.Sleep(750);
-					CallbackThread = null;
-				    bCallbackThreadExitFlag = false;
-
+				    
 				    ProcessObject = null;
 
 				    if (clearCallbacks)
@@ -822,7 +818,6 @@ namespace MiniMem
 		    return newInstance;
 	    }
 
-
 		public static bool CreateTrampolineAndCallback(IntPtr targetAddress, int targetAddressInstructionCount, string[] mnemonics, CallbackDelegate codeExecutedEventDelegate, out CallbackObject createdObject, string identifier = "", bool shouldSuspend = true, bool preserveOriginalInstruction = false, bool implementCallback = true, bool implementRegisterDump = true)
 		{
 			#region Function Specific Variables
@@ -953,11 +948,8 @@ namespace MiniMem
 			#endregion
 
 			#region Implementing the actual trampoline
-			if (preserveOriginalInstruction)
-			{
-				originalInstructionBytes = ReadBytes(targetAddress.ToInt64(), targetAddressInstructionCount);
-			}
-
+			originalInstructionBytes = ReadBytes(targetAddress.ToInt64(), targetAddressInstructionCount);
+			
 			codeCavePointer = AllocateMemory(0x10000, MemoryProtection.ExecuteReadWrite, AllocationType.Commit | AllocationType.Reserve);
 			if (codeCavePointer.Pointer == IntPtr.Zero)
 				throw new Exception("Failed allocating memory inside the process!\nTrampoline cannot be implemented!");
@@ -1005,7 +997,7 @@ namespace MiniMem
 			{
 				AllocatedMemory = codeCavePointer,
 				NewBytes = jmpBytesIn.ToArray(),
-				OriginalBytes = ReadBytes(targetAddress.ToInt64(), targetAddressInstructionCount),
+				OriginalBytes = originalInstructionBytes,
 				Identifier = identifier == "" ? "NO_IDENTFIER_PROVIDED" : identifier,
 				optionalRegisterStructPointer = registerStructurePointer.Pointer,
 				optionalHitCounterPointer = callbackPointer.Pointer,
