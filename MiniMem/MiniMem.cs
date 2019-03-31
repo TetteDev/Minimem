@@ -13,7 +13,6 @@ using System.Threading.Tasks;
 using static MiniMem.Constants;
 using static MiniMem.Helper;
 using static MiniMem.Native;
-using ThreadState = System.Threading.ThreadState;
 
 namespace MiniMem
 {
@@ -745,6 +744,105 @@ namespace MiniMem
 				ResumeProcess();
 
 		    return newInstance;
+	    }
+
+	    public static TrampolineInstance CreateTrampoline64Bit(ulong targetInstructionAddress, int instructionCount, string[] mnemonics64bit, bool shouldSuspend = true, bool preserveOriginalInstruction = true)
+	    {
+		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) return null;
+		    if (instructionCount < 10)
+		    {
+			    // We need atleast 10 bytes on 64bit
+		    }
+
+		    //if (!AttachedProcess.Is64Bit()) // Check if attached process is 64bit
+			//    throw new Exception("ddd");
+
+		    if (mnemonics64bit == null || mnemonics64bit.Length < 1)
+			    return null;
+
+		    List<string> modified;
+
+		    if (!mnemonics64bit[0].ToLower().StartsWith("use64"))
+		    {
+			    modified = mnemonics64bit.ToList();
+			    modified.Insert(0, "use64");
+
+			    if (!TryAssemble(modified.ToArray(), out byte[] assembledResult)) // See if the provided mnemonics are valid 64bit mnemonics
+				    return null; // Invalid 64bit mnemonics according to Flat Assembler
+		    }
+		    else
+		    {
+			    modified = mnemonics64bit.ToList();
+			    if (!TryAssemble(modified.ToArray(), out byte[] assembledResult)) // See if the provided mnemonics are valid 64bit mnemonics
+				    return null; // Invalid 64bit mnemonics according to Flat Assembler
+			}
+
+			// Already here add the jmp out instructions to our mnemonics
+		    RemoteAllocatedMemory codeCave = AllocateMemory(0x10000);
+			modified.InsertRange(mnemonics64bit.Length, new []
+			{
+				//$"jmp {targetInstructionAddress - (ulong)codeCave.Pointer.ToInt64() + (ulong)instructionCount}",
+				$"mov rax,{targetInstructionAddress + (uint)instructionCount}",
+				"jmp rax",
+			});
+
+		    int nopCount = instructionCount - 12;
+		    bool DidSuspend = false;
+
+		    byte[] originalOverwritenBytes = ReadBytes((long)targetInstructionAddress, instructionCount);
+
+			// Calculate jump in offset
+		    ulong jumpInOffset = (ulong)codeCave.Pointer.ToInt64() - targetInstructionAddress - 10;
+			List<byte> jumpInBytes = new List<byte>(0xE9);
+			jumpInBytes.AddRange(BitConverter.GetBytes(jumpInOffset));
+
+		    if (nopCount > 0)
+		    {
+			    for (int iNopCount = 0; iNopCount < nopCount; iNopCount++)
+			    {
+				    jumpInBytes.Add(0x90);
+			    }
+		    }
+
+		    if (shouldSuspend)
+		    {
+			    SuspendProcess();
+			    DidSuspend = true;
+		    }
+
+
+		    byte[] buffer64BitShellcode = FasmNet.Assemble(modified.ToArray());
+
+		    if (preserveOriginalInstruction)
+		    {
+			    WriteBytes(codeCave.Pointer.ToInt64(), originalOverwritenBytes);
+			    WriteBytes(codeCave.Pointer.ToInt64() + originalOverwritenBytes.Length, buffer64BitShellcode);
+		    }
+		    else
+		    {
+				WriteBytes(codeCave.Pointer.ToInt64(), buffer64BitShellcode); // Write the contents of our shellcode buffer into the cave
+			}
+
+		    WriteBytes((long)targetInstructionAddress, jumpInBytes.ToArray());
+
+		    if (shouldSuspend && DidSuspend)
+		    {
+			    ResumeProcess();
+		    }
+
+		    return new TrampolineInstance
+		    {
+			    AllocatedMemory = codeCave,
+			    Identifier = "64bitsomething",
+			    NewBytes = jumpInBytes.ToArray(),
+			    optionalHitCounterPointer = IntPtr.Zero,
+			    optionalRegisterStructPointer = IntPtr.Zero,
+			    OriginalBytes = originalOverwritenBytes,
+			    SuspendNeeded = shouldSuspend,
+			    TrampolineDestination = preserveOriginalInstruction ? codeCave.Pointer.ToInt64() + originalOverwritenBytes.Length : codeCave.Pointer.ToInt64(),
+			    TrampolineJmpOutDestination = (long)targetInstructionAddress + instructionCount,
+			    TrampolineJmpOutAddress = 0, // ignore this
+		    };
 	    }
 
 		public static bool CreateTrampolineAndCallback(IntPtr targetAddress, int targetAddressInstructionCount, string[] mnemonics, CallbackDelegate codeExecutedEventDelegate, out CallbackObject createdObject, string identifier = "", bool shouldSuspend = true, bool preserveOriginalInstruction = false, bool implementCallback = true, bool implementRegisterDump = true)

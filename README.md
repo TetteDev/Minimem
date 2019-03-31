@@ -1,4 +1,4 @@
-# **Minimem - 32/64bit C# Based Memory Library**
+# **Minimem - 32bit C# Based Memory Library**
 ## Some Basic Features:
 1. Generic Read and Write methods for all standard types such as **float**, **int**, etc..
 2. Pattern Scanner **(Ported from x64dbg)**
@@ -16,12 +16,11 @@ public static void WriteMultiLevelPointer<T>(long baseAddress, object value, par
 ```
 * I guess this is not really an Issue but we can pretend it is just to clarify something early on. The above mentioned functions are meant to Read and Write actual pointers, and will for each step in in the process **READ** the value of the baseAddress + offsets[stepIdx]. Meaning, if you have base address and offsets that are basically only supposed to be added onto the base address directly, and then read the value. This is not the functions you are looking for.
 
-
 * Error handling in most cases just consist of try catch statements unfortunately, not really an issue per say but just letting you know
 
 * There are probably quite many other bugs I have not yet encountered, but dont be suprised if you encounter anything that is not mentioned in this list.
 
-* **Although 90% of the functionality provided in this library works for both 32bit and 64bit, the only function you wont be able to use on 64bit applications is CreateTrampolineAndCallback()**
+* **~~Although 90% of the functionality provided in this library works for both 32bit and 64bit, the only function you wont be able to use on 64bit applications is CreateTrampolineAndCallback()~~**
 
 # **How to get started**
 1. Make sure to reference both **minimem.dll** and **FASM.Net.dll** in your application.
