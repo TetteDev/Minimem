@@ -342,7 +342,8 @@ namespace MiniMem
 
 			public void Restore()
 			{
-				MiniMem.WriteBytes(TrampolineOrigin, OriginalBytes);
+				if (OriginalBytes != null && OriginalBytes.Length > 0)
+					MiniMem.WriteBytes(TrampolineOrigin, OriginalBytes);
 				AllocatedMemory.Free();	
 			}
 		}

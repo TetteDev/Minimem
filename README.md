@@ -5,7 +5,8 @@
 3. Executing shellcode remotely
 4. Allocating/Freeing memory inside remote process
 5. Suspending/Resuming remote process with ease
-6. Closing handles opened my remote process
+6. Closing handles opened by remote process
+7. Ability to read all 32bit register at a certain instruction when it get accessed and  **(Only 32bit applications, See Example 10)**
 
 # **Known Issues/Bugs**
 

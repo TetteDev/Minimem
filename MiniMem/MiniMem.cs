@@ -900,7 +900,7 @@ namespace MiniMem
 			{
 				AllocatedMemory = codeCavePointer,
 				NewBytes = jmpBytesIn.ToArray(),
-				OriginalBytes = originalInstructionBytes.ToArray(),
+				OriginalBytes = ReadBytes(targetAddress.ToInt64(), targetAddressInstructionCount),
 				Identifier = identifier == "" ? "NO_IDENTFIER_PROVIDED" : identifier,
 				optionalRegisterStructPointer = registerStructurePointer.Pointer,
 				optionalHitCounterPointer = callbackPointer.Pointer,
