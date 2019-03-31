@@ -1145,7 +1145,7 @@ namespace MiniMem
 			    assembled = t;
 			    return true;
 		    }
-		    catch
+		    catch (FasmAssemblerException fEx)
 		    {
 			    assembled = null;
 			    return false;

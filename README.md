@@ -5,7 +5,29 @@
 3. List Item 3
 4. List Item 4
 
-## How to get started:
+# **Known Issues/Bugs**
+```cs
+public static void StartFreezer()
+public static void StopFreezer()
+public static void AddFreezeValue(long address, string identifier, string valuetype, object value)
+public static async Task RemoveFreezeValue(string identifier, int maxRetries = 5)
+```
+* **The above mentioned functions are generally not very stable (read: not threadsafe) and are recommended to not be used. I wont provide any example snippets for this as I would rather suggest you create your own method for "Freezing" a value (Like you do with CE). Will remove this on next push**
+
+
+```cs
+public static T ReadMultiLevelPointer<T>(long baseAddress, params int[] offsets) 
+public static void WriteMultiLevelPointer<T>(long baseAddress, object value, params int[] offsets)
+```
+* I guess this is not really an Issue but we can pretend it is just to clarify something early on. The above mentioned functions are meant to Read and Write actual pointers, and will for each step in in the process **READ** the value of the baseAddress + offsets[stepIdx]. Meaning, if you have base address and offsets that are basically only supposed to be added onto the base address directly, and then read the value. This is not the functions you are looking for.
+
+
+* Error handling in most cases just consist of try catch statements unfortunately, not really an issue per say but just letting you know
+
+* There are probably quite many other bugs I have not yet encountered, but dont be suprised if you encounter anything that is not mentioned in this list.
+
+
+# **How to get started**
 1. Make sure to reference both **minimem.dll** and **FASM.Net.dll** in your application.
 2. Add these usings to the top of your document
 
@@ -34,7 +56,7 @@ it also launches a thread that runs in the background. In most cases you can pro
 public static bool CreateTrampolineAndCallback(IntPtr targetAddress, int targetAddressInstructionCount, string[] mnemonics, CallbackDelegate codeExecutedEventDelegate, out CallbackObject createdObject, string identifier = "", bool shouldSuspend = true, bool preserveOriginalInstruction = false, bool implementCallback = true, bool implementRegisterDump = true)
 ```
 
-A deeper explanation on how to use the above mentioned method can be found under section **Examples/Usage**.
+A deeper explanation on how to use the above mentioned method can be found under section **Examples/Usage**, subsection **Example 10**.
 
 *PLACEHOLDER TEXT (Will update this section later): Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aenean aliquam lectus felis, et porta urna vestibulum vel. Sed finibus pellentesque nisi, finibus dapibus sem consectetur eget. Vivamus at viverra massa. Sed facilisis at enim non finibus. Aenean quis enim a mauris sollicitudin fringilla non ac nulla. Maecenas gravida sem eros, eget accumsan odio cursus vitae. Mauris sollicitudin diam ultricies, tincidunt dui eget, porttitor tortor. Nam ut diam arcu. Nam at porta velit, vitae ornare urna.*
 
@@ -202,10 +224,229 @@ if (boolFreeResult) {
     // We successfully 'released' the previously allocated memory
 } else {
     // We failed to free the previously allocated memory
-    
+
     // Again, probably would be good to make use for 
     // https://www.pinvoke.net/default.aspx/kernel32.getlasterror
     // to actually know what went wrong
 }
-
 ```
+
+## **Example 7: Closing an internally opened handle by the remote process, by its handle type and handle name**
+### **Signatures**
+```cs
+public static bool TryFindDeleteHandle(string strHandleType, string strHandleName)
+```
+
+## **Usage Example: TryFindDeleteHandle**
+```cs
+// Lets assume here the process you're attached too spawns a Mutex on startup, that prevents you from
+// launching another instance of the process
+
+// Note, the handle name and its type can be seen by doing the following,
+// Opening Process Hacker -> Selecting the process -> Highlighting selected process and right clicking going into Properties -> Finding the handle in the 'Handles' tab
+
+// For this example were going to assume the handle we want to close is of "Mutant" type, and is named "WindowMutex";
+string strOurHandleType = "Mutant";
+string strOurHandleName = "WindowMutex";
+
+if (Mem.TryFindDeleteHandle(strOurHandleType, strOurHandleName)) {
+    // We successfully found the handle we wanted
+    // and the function have closed that handle
+
+    // In theory, you should be able to launch another instance of said process etc
+} else {
+    // We failed to close the handle
+    // Could be because of many reasons
+    // Some are
+
+    /*
+    * 1. Handle with type and name does not exist
+    * 2. Insufficient priviliges (try restarting the program as administrator)
+    * 3. Internal measures to prevent an external process from closing any handles
+    */
+
+    //  Again,
+    // https://www.pinvoke.net/default.aspx/kernel32.getlasterror
+    // Where are you when we need you???
+}
+```
+
+# Notes regarding the internal code for function 'TryFindDeleteHandle(string, string)'
+It really is an abomination, and I dont suggest looking up what is going on behind the scenes.
+If anyone wants to improve this and send a PR feel free to do so.
+
+## **Example 8: Logging**
+### **Signatures**
+```cs
+public static void Log(string message,MessageType messageType = MessageType.INFO, bool writeToDebug = true, bool writeToFile = false)
+```
+
+## **Usage Example: Log**
+```cs
+// The other optional parameters, namely 
+/*
+* writeToDebug
+* writeToFile
+*/
+// Dont need to much of an explanation I think
+
+Mem.Log("We logged something with MessageType set to DEFAULT", MessageType.DEFAULT);
+Mem.Log("We logged something with MessageType set to INFO", MessageType.INFO);
+Mem.Log("We logged something else with MessageType set to WARNING", MessageType.WARNING);
+Mem.Log("We logged something else with MessageType set to ERROR", MessageType.ERROR);
+```
+
+## **Result**
+![alt text](https://i.imgur.com/XU6yKTC.png "Results")
+
+
+## **Example 9: FASM dotNet related functionality**
+## Link to repository: [ZenLulz/Fasm.NET](https://github.com/ZenLulz/Fasm.NET) (Please read this for how to use these)
+## Link to Flat Assembler Manual: [Flat Assembler User Manual](https://flatassembler.net/docs.php?article=fasmg_manual) (Good information for syntax help)
+
+Basically, the functions here are "wrappers" to the functions available in **FASM.Net.dll**
+### **Signatures**
+```cs
+public static byte[] Assemble(string mnemonics)
+public static byte[] Assemble(string[] mnemonics)
+public static bool TryAssemble(string[] mnemonics, out byte[] assembled)
+```
+
+## **Usage Example: TryAssemble**
+```cs
+string[] ourMnemonics = new string[] {
+    "use32", // Basically justy signifies our defined assembly code down below is 32bit
+    "xor eax,eax", // Basically clear the contents of eax
+    "retn", // return instruction mnemonic
+};
+
+if (Mem.TryAssemble(ourMnemonics, out byte[] mnemonicsAsBytes)) {
+    // FASM.Net successfully translated our mnemonics into actual shellcode
+    // the generated shellcode is inside byte array 'mnemonicsAsBytes'
+
+    // Proceed to do whatever you need with the shellcode
+    // Maybe inject it into the process (Example code of how to inject shellcode is available if you scroll down)
+} else {
+    // Something went wrong
+    // No real error to know what exactly went wrong
+    // If you want to get more specific errors thrown with information you can use the following snippet
+}
+```
+
+## **Sub Example: Assemble (throws FASMNetAssmblerException)**
+```cs
+string[] ourMnemonics = new string[] {
+    "use32", // Basically justy signifies our defined assembly code down below is 32bit
+    "clear eax", // Invalid instruction
+    "return", // Invalid instruction
+};
+
+byte[] ourMnemonicsAsBytes = Mem.Assemble(ourMnemonics);
+// This will throw an exception with the index of the invalid instruction, and a more indepth explanation on what went wrong
+```
+
+## My recommendation is to use Mem.Assemble(string[]) when assembling and adding your own error handling
+## I only use Mem.TryAssemble(string[], out byte[]) where I know I have provided valid 32bit assembly mnemonics
+
+## **Example 10: Detouring/Trampolining executable code with support for callback when code is called**
+Make sure to strap yourself to your chair as the function here is quite messy **BUT VERY USEFUL**  if you know how to use it properly
+### **Signatures**
+```cs
+public static bool CreateTrampolineAndCallback(
+    IntPtr targetAddress, 
+    int targetAddressInstructionCount, 
+    string[] mnemonics, 
+    CallbackDelegate codeExecutedEventDelegate, 
+    out CallbackObject createdObject, 
+    string identifier = "", 
+    bool shouldSuspend = true, 
+    bool preserveOriginalInstruction = false, 
+    bool implementCallback = true, bool 
+    implementRegisterDump = true
+)
+```
+
+## **Example usage: CreateTrampolineAndCallback(params...) to dump all 32bit registers at instruction in remote process**
+```cs
+using System;
+using static MiniMem.Constants;
+using Mem = MiniMem.MiniMem;
+
+namespace Test
+{
+	class Program
+	{
+                // You dont need to define the structure, as its already defined within the Library
+                // This is just for better visualizing what happens 
+                [StructLayout(LayoutKind.Sequential)]
+		public struct Registers
+		{
+			public int EAX; // 0x0
+			public int EBX; // 0x4
+			public int ECX; // 0x8
+			public int EDX; // 0x12
+			public int EDI; // 0x16
+			public int ESI; // 0x20
+			public int EBP; // 0x24
+			public int ESP; // 0x28
+		}
+
+
+		[STAThread]
+		static void Main(string[] args)
+		{
+			if (!Mem.Attach("game.bin"))
+			{
+				Environment.Exit(-1);
+			}
+
+			CallbackObject obj; // The returned object from function CreateTrampolineAndCallback will be stored in this
+			CallbackDelegate CodeExecutedEvent = MyCallbackEvent; // Expects a delegate with signature void(object)
+
+                        // Information on how FindProcessModule and FindPatternSingle works and what it returns can be found if you scroll up
+			IntPtr addr = Mem.FindPatternSingle(Mem.FindProcessModule("target_module", false), "33 FF 39 78 08 0F 8E ?? ?? ?? ?? 8B CE E8 ?? ?? ?? ?? 84 C0");
+			if (addr == IntPtr.Zero) return; // Always good to check for this before actually attempting to do anything else
+
+			bool result = Mem.CreateTrampolineAndCallback(
+				addr, // Target Address,
+				5, // targetAddressInstructionCount
+				new string [] // Mnemonics to be injected into our code cave (the trampoline will jump to this code cave and execute this code)
+				{
+					// Feel free to add any custom mnemonics you might need, but if you only look to dump register values at a certain instruction you can pass an empty string[]
+                                        // like I do here
+
+					// here will our register dump mnemonic be placed is ImplementRegisterDump is true
+					// Here will the inc instruction will be placed in our case if ImplementCallback is true
+					// Here will the jump back out to ('addr' + 5 bytes) be placed
+				},
+				CodeExecutedEvent, // codeExecutedEventDelegate (Points to our method below called 'MyCallbackEvent')
+				out  obj,// Created Callback Object
+				"whatever identifier you want to give this trampoline",
+				true, // ShouldSuspend
+				true, // PreserveOriginalInstruction
+				true, // ImplementCallback
+				true // ImplementRegisterDump
+			);
+
+			if (obj != null && result) // If the returned object is not null and our function succeeded
+			{
+				Mem.ActiveCallbacks.Add(obj); // Add the newly created object to the Callback monitor thread
+
+				Console.ReadLine(); // Basically keep the program running until the user presses any key
+				Mem.Detach(); // When any key is pressed, detach will as the name says Detach from the remote process
+                                // and Restore any applied Trampolines made 
+			}
+		}
+
+		public static void MyCallbackEvent(object callbackObject)
+		{
+			if (callbackObject == null) return; // Always good to have a check for null
+			CallbackObject obj = (CallbackObject)callbackObject; // Cast passed object into an actual CallbackObject type
+
+                        Console.WriteLine($"Code injected for detour with identfier {obj.str_CallbackIdentifier} got executed once by the remote process!")
+		}
+	}
+}
+```
+
+## **(somewhat) In depth Explanation about the different components of the process above**

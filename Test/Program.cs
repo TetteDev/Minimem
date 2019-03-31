@@ -1,5 +1,4 @@
 ﻿using System;
-
 using static MiniMem.Constants;
 using Mem = MiniMem.MiniMem;
 
@@ -14,6 +13,8 @@ namespace Test
 			{
 				Environment.Exit(-1);
 			}
+
+			
 
 			CallbackObject obj;
 			CallbackDelegate CodeExecutedEvent = MyCallbackEvent;
@@ -83,7 +84,6 @@ namespace Test
 			
 			if (callbackObject == null) return;
 			CallbackObject obj = (CallbackObject)callbackObject;
-
 
 			Registers r = Mem.ReadMemory<Registers>(obj.class_TrampolineInfo.optionalRegisterStructPointer.ToInt64());
 			Console.WriteLine($"EAX VALUE: 0x{r.EAX:X}");
