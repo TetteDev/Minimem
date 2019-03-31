@@ -3,7 +3,7 @@
 
 # Ignore test project
 Test/
-Memory Class/
+MemoryClass/
 
 # User-specific files
 *.suo

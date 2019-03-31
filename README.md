@@ -1,9 +1,11 @@
 # **Minimem - 32bit C# Based Memory Library**
-## Basic Features:
+## Some Basic Features:
 1. Generic Read and Write methods for all standard types such as **float**, **int**, etc..
 2. Pattern Scanner **(Ported from x64dbg)**
-3. List Item 3
-4. List Item 4
+3. Executing shellcode remotely
+4. Allocating/Freeing memory inside remote process
+5. Suspending/Resuming remote process with ease
+6. Closing handles opened my remote process
 
 # **Known Issues/Bugs**
 
