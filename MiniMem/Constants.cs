@@ -250,7 +250,7 @@ namespace MiniMem
 			public Signature(string name, string pattern)
 			{
 				Name = name;
-				Pattern = MiniMem.Transform(pattern);
+				Pattern = Helper.Transform(pattern);
 				FoundOffset = -1;
 			}
 
