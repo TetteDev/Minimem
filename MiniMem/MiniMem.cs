@@ -1238,7 +1238,7 @@ namespace MiniMem
 		    if (!AttachedProcess.IsRunning()) throw new Exception("Game is not running anymore!");
 			return VirtualAllocEx(AttachedProcess.ProcessHandle, IntPtr.Zero, new IntPtr(size), allocationFlags, protectionFlags);
 		}
-	    public static RemoteAllocatedMemory AllocateMemory(int size, MemoryProtection protectionFlags, AllocationType allocationFlags)
+	    public static RemoteAllocatedMemory AllocateMemory(int size, MemoryProtection protectionFlags = MemoryProtection.ExecuteReadWrite, AllocationType allocationFlags = AllocationType.Commit | AllocationType.Reserve)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			if (!AttachedProcess.IsRunning()) throw new Exception("Game is not running anymore!");
