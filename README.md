@@ -1,4 +1,4 @@
-# **Minimem - 32bit C# Based Memory Library**
+# **Minimem - 32/64bit C# Based Memory Library**
 ## Some Basic Features:
 1. Generic Read and Write methods for all standard types such as **float**, **int**, etc..
 2. Pattern Scanner **(Ported from x64dbg)**
@@ -20,6 +20,7 @@ public static void WriteMultiLevelPointer<T>(long baseAddress, object value, par
 
 * There are probably quite many other bugs I have not yet encountered, but dont be suprised if you encounter anything that is not mentioned in this list.
 
+* **Although 90% of the functionality provided in this library works for both 32bit and 64bit, the only function you wont be able to use on 64bit applications is CreateTrampolineAndCallback()**
 
 # **How to get started**
 1. Make sure to reference both **minimem.dll** and **FASM.Net.dll** in your application.
