@@ -12,10 +12,10 @@ namespace MiniMem
 		public delegate IntPtr OpenProcessDelegate(int dwDesiredAccess, bool bInheritHandle, int dwProcessId);
 		public static OpenProcessDelegate OpenProcess = CreateAPI<OpenProcessDelegate>("kernel32.dll", "OpenProcess");
 
-		public delegate bool ReadProcessMemoryDelegate(int hProcess, IntPtr lpBaseAddress, byte[] buffer, int size, ref int lpNumberOfBytesRead);
+		public delegate bool ReadProcessMemoryDelegate(int hProcess, IntPtr lpBaseAddress, byte[] buffer, int size, ref IntPtr lpNumberOfBytesRead);
 		public static ReadProcessMemoryDelegate ReadProcessMemory = CreateAPI<ReadProcessMemoryDelegate>("kernel32.dll", "ReadProcessMemory");
 
-		public delegate bool WriteProcessMemoryDelegate(int hProcess, int lpBaseAddress, byte[] buffer, int size, out int lpNumberOfBytesWritten);
+		public delegate bool WriteProcessMemoryDelegate(int hProcess, IntPtr lpBaseAddress, byte[] buffer, int size, out IntPtr lpNumberOfBytesWritten);
 		public static WriteProcessMemoryDelegate WriteProcessMemory = CreateAPI<WriteProcessMemoryDelegate>("kernel32.dll", "WriteProcessMemory");
 
 		public delegate bool VirtualProtectExDelegate(IntPtr hProcess, IntPtr lpAddress, int nSize, uint flNewProtect, out uint lpflOldProtect);
