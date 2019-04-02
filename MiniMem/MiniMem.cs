@@ -1,7 +1,5 @@
 ﻿#if X86
 using Binarysharp.Assemblers.Fasm;
-#elif ANYCPU
-using Binarysharp.Assemblers.Fasm;
 #endif
 
 using System;
@@ -24,7 +22,7 @@ namespace MiniMem
 	public class MiniMem
     {
 	    /// <summary>
-	    /// List of all active detours which have been generated to have a callback
+	    /// Thread 'CallbackThread' itterates through this
 	    /// </summary>
 		public static List<CallbackObject> ActiveCallbacks = new List<CallbackObject>();
 
@@ -654,8 +652,8 @@ namespace MiniMem
 		}
 		#endregion
 
-#if X86
 		#region Detouring 
+#if X86
 						/// <summary>
 						/// Creates a basic trampoline/jmp detour at a desired address/instruction
 						/// </summary>
@@ -757,108 +755,9 @@ namespace MiniMem
 							return newInstance;
 						}
 
-						public static TrampolineInstance CreateTrampoline64Bit(ulong targetInstructionAddress, int instructionCount, string[] mnemonics64bit, bool shouldSuspend = true, bool preserveOriginalInstruction = true)
-						{
-							if (AttachedProcess.ProcessHandle == IntPtr.Zero) return null;
-							if (instructionCount < 10)
-							{
-								// We need atleast 10 bytes on 64bit
-							}
-
-							//if (!AttachedProcess.Is64Bit()) // Check if attached process is 64bit
-							//    throw new Exception("ddd");
-
-							if (mnemonics64bit == null || mnemonics64bit.Length < 1)
-								return null;
-
-							List<string> modified;
-
-							if (!mnemonics64bit[0].ToLower().StartsWith("use64"))
-							{
-								modified = mnemonics64bit.ToList();
-								modified.Insert(0, "use64");
-
-								if (!TryAssemble(modified.ToArray(), out byte[] assembledResult)) // See if the provided mnemonics are valid 64bit mnemonics
-									return null; // Invalid 64bit mnemonics according to Flat Assembler
-							}
-							else
-							{
-								modified = mnemonics64bit.ToList();
-								if (!TryAssemble(modified.ToArray(), out byte[] assembledResult)) // See if the provided mnemonics are valid 64bit mnemonics
-									return null; // Invalid 64bit mnemonics according to Flat Assembler
-							}
-
-							// Already here add the jmp out instructions to our mnemonics
-							RemoteAllocatedMemory codeCave = AllocateMemory(0x10000);
-							modified.InsertRange(mnemonics64bit.Length, new[]
-							{
-								//$"jmp {targetInstructionAddress - (ulong)codeCave.Pointer.ToInt64() + (ulong)instructionCount}",
-								$"mov rax,{targetInstructionAddress + (uint)instructionCount}",
-								"jmp rax",
-							});
-
-							int nopCount = instructionCount - 12;
-							bool DidSuspend = false;
-
-							byte[] originalOverwritenBytes = ReadBytes((long)targetInstructionAddress, instructionCount);
-
-							// Calculate jump in offset
-							ulong jumpInOffset = (ulong)codeCave.Pointer.ToInt64() - targetInstructionAddress - 10;
-							List<byte> jumpInBytes = new List<byte>(0xE9);
-							jumpInBytes.AddRange(BitConverter.GetBytes(jumpInOffset));
-
-							if (nopCount > 0)
-							{
-								for (int iNopCount = 0; iNopCount < nopCount; iNopCount++)
-								{
-									jumpInBytes.Add(0x90);
-								}
-							}
-
-							if (shouldSuspend)
-							{
-								SuspendProcess();
-								DidSuspend = true;
-							}
-
-
-							byte[] buffer64BitShellcode = FasmNet.Assemble(modified.ToArray());
-
-							if (preserveOriginalInstruction)
-							{
-								WriteBytes(codeCave.Pointer.ToInt64(), originalOverwritenBytes);
-								WriteBytes(codeCave.Pointer.ToInt64() + originalOverwritenBytes.Length, buffer64BitShellcode);
-							}
-							else
-							{
-								WriteBytes(codeCave.Pointer.ToInt64(), buffer64BitShellcode); // Write the contents of our shellcode buffer into the cave
-							}
-
-							WriteBytes((long)targetInstructionAddress, jumpInBytes.ToArray());
-
-							if (shouldSuspend && DidSuspend)
-							{
-								ResumeProcess();
-							}
-
-							return new TrampolineInstance
-							{
-								AllocatedMemory = codeCave,
-								Identifier = "64bitsomething",
-								NewBytes = jumpInBytes.ToArray(),
-								optionalHitCounterPointer = IntPtr.Zero,
-								optionalRegisterStructPointer = IntPtr.Zero,
-								OriginalBytes = originalOverwritenBytes,
-								SuspendNeeded = shouldSuspend,
-								TrampolineDestination = preserveOriginalInstruction ? codeCave.Pointer.ToInt64() + originalOverwritenBytes.Length : codeCave.Pointer.ToInt64(),
-								TrampolineJmpOutDestination = (long)targetInstructionAddress + instructionCount,
-								TrampolineJmpOutAddress = 0, // ignore this
-							};
-						}
-
 						public static bool CreateTrampolineAndCallback(IntPtr targetAddress, int targetAddressInstructionCount, string[] mnemonics, CallbackDelegate codeExecutedEventDelegate, out CallbackObject createdObject, string identifier = "", bool shouldSuspend = true, bool preserveOriginalInstruction = false, bool implementCallback = true, bool implementRegisterDump = true)
 						{
-						#region Function Specific Variables
+		#region Function Specific Variables
 											RemoteAllocatedMemory callbackPointer = null;
 											RemoteAllocatedMemory registerStructurePointer = null;
 											RemoteAllocatedMemory codeCavePointer = null;
@@ -867,17 +766,17 @@ namespace MiniMem
 											int jmpInstructionNopBytesNeeded = 0;
 											byte[] originalInstructionBytes = new byte[] { };
 											bool didSuspend = false;
-						#endregion
+		#endregion
 
-						#region Check - Attached to process
+		#region Check - Attached to process
 											if (!AttachedProcess.IsAttached())
 											{
 												// Not Attached to any process
 												createdObject = null;
 												return false;
 											}
-						#endregion
-						#region Check - Initial mnemonics are valid
+		#endregion
+		#region Check - Initial mnemonics are valid
 
 											if (mnemonics.Length < 1)
 											{
@@ -894,8 +793,8 @@ namespace MiniMem
 												createdObject = null;
 												return false;
 											}
-						#endregion
-						#region Check - Have enough bytes to work with, also calculate nops needed
+		#endregion
+		#region Check - Have enough bytes to work with, also calculate nops needed
 
 											if (targetAddressInstructionCount < 5)
 											{
@@ -903,9 +802,9 @@ namespace MiniMem
 												return false;
 											}
 											jmpInstructionNopBytesNeeded = targetAddressInstructionCount - 5;
-						#endregion
+		#endregion
 
-						#region Modifying of passed mnemonics
+		#region Modifying of passed mnemonics
 											var baseMnemonics = mnemonics.ToList();
 
 											if (implementCallback)
@@ -983,9 +882,9 @@ namespace MiniMem
 
 												}
 											}
-						#endregion
+		#endregion
 
-						#region Implementing the actual trampoline
+		#region Implementing the actual trampoline
 											originalInstructionBytes = ReadBytes(targetAddress.ToInt64(), targetAddressInstructionCount);
 
 											codeCavePointer = AllocateMemory(0x10000, MemoryProtection.ExecuteReadWrite, AllocationType.Commit | AllocationType.Reserve);
@@ -1028,9 +927,9 @@ namespace MiniMem
 											List<byte> jmpBytesOut = new List<byte> { 0xE9 };
 											jmpBytesOut.AddRange(BitConverter.GetBytes(relativeOffsetForJmpOut.ToInt32()));
 											WriteBytes(currentPosition.ToInt64(), jmpBytesOut.ToArray()); // Append the jump out instruction at the end of our code cave
-						#endregion
+		#endregion
 
-						#region Constructing the final return object
+		#region Constructing the final return object
 											TrampolineInstance trampolineObject = new TrampolineInstance
 											{
 												AllocatedMemory = codeCavePointer,
@@ -1054,7 +953,7 @@ namespace MiniMem
 												LastValue = 0
 											};
 
-						#endregion
+		#endregion
 
 											string formattedSucessMessage = $"Trampoline successfully injectd at address 0x{targetAddress.ToInt32():X} in process '{AttachedProcess.ProcessObject.ProcessName}'!\n\n" +
 																			$"	* Dumped Register Values Struct Start Address: 0x{registerStructurePointer.Pointer.ToInt32():X}\n" +
@@ -1075,8 +974,98 @@ namespace MiniMem
 											createdObject = returnObject;
 											return true;
 						}
-		#endregion
 #endif
+
+#if X64
+		/// <summary>
+		/// Creates a basic trampoline/jmp detour at a desired address/instruction
+		/// </summary>
+		/// <param name="targetInstructionAddress">The address where to place the initial jmp</param>
+		/// <param name="instructionCount">The amount of bytes you're over writing at the target address</param>
+		/// <param name="shellcode">Shell code to execute inside code cave</param>
+		/// <param name="shouldSuspend">Wether or not the program should suspend the remote process during the procedure</param>
+		/// <param name="preserveOriginalInstruction">If the original overwritten bytes should be prepended at the start of the code cave</param>
+		/// <returns>TrampolineInstance</returns>
+		public static TrampolineInstance CreateTrampoline(long targetInstructionAddress, int instructionCount, byte[] shellcode, bool shouldSuspend = true, bool preserveOriginalInstruction = true)
+		{
+			if (AttachedProcess.ProcessHandle == IntPtr.Zero) return null;
+			if (instructionCount < 5)
+			{
+				throw new Exception("Target Instruction bytes must be atleast 5 bytes!");
+			}
+
+			bool IsSuspended = false;
+			byte[] nopBytes = new byte[] { };
+			if (instructionCount > 5)
+			{
+				var nopsNeeded = instructionCount - 5; // 5 == E9 XX XX XX XX (JMP instruction to 4byte offset from origin)
+				nopBytes = new byte[nopsNeeded];
+				for (int iNopIdx = 0; iNopIdx < nopsNeeded; iNopIdx++)
+				{
+					nopBytes[iNopIdx] = 0x90; // Append NOP
+				}
+			}
+
+			RemoteAllocatedMemory memoryRegion = AllocateMemory(0x10000, MemoryProtection.ExecuteReadWrite, AllocationType.Commit | AllocationType.Reserve);
+			if (memoryRegion.Pointer == IntPtr.Zero) throw new Exception("VirtualAllocEx failed allocating memory for the codecave!");
+			TrampolineInstance newInstance = new TrampolineInstance();
+
+
+			List<byte> JMPInBytes = new List<byte> { 0xE9 };
+			// Relative JMP
+			JMPInBytes.AddRange(BitConverter.GetBytes((memoryRegion.Pointer.ToInt32() - (int)targetInstructionAddress) - 5)); // DEST - ORIGIN = Offset to codecave
+			if (nopBytes.Length > 0)
+			{
+				JMPInBytes.AddRange(nopBytes);
+			}
+
+			newInstance.AllocatedMemory = memoryRegion;
+			newInstance.OriginalBytes = ReadBytes(targetInstructionAddress, instructionCount);
+			newInstance.NewBytes = JMPInBytes.ToArray();
+			newInstance.TrampolineOrigin = targetInstructionAddress;
+			newInstance.TrampolineDestination = memoryRegion.Pointer.ToInt32();
+			newInstance.SuspendNeeded = true;
+
+			if (shouldSuspend)
+			{
+				SuspendProcess();
+				IsSuspended = true;
+			}
+
+			WriteBytes(targetInstructionAddress, JMPInBytes.ToArray());
+			int jumpOutInstructionLocation = memoryRegion.Pointer.ToInt32();
+							
+
+			if (preserveOriginalInstruction && newInstance.OriginalBytes.Length > 0)
+			{
+				WriteBytes(memoryRegion.Pointer.ToInt64(), newInstance.OriginalBytes);
+				jumpOutInstructionLocation += newInstance.OriginalBytes.Length;
+			}
+
+			if (shellcode != null && shellcode.Length > 0)
+			{
+				WriteBytes(jumpOutInstructionLocation, shellcode);
+				jumpOutInstructionLocation += shellcode.Length;
+			}
+
+			newInstance.TrampolineJmpOutAddress = jumpOutInstructionLocation;
+			int relativeJumpBackOutAddress = jumpOutInstructionLocation > (int)targetInstructionAddress ? (int)targetInstructionAddress - jumpOutInstructionLocation : jumpOutInstructionLocation - (int)targetInstructionAddress;
+			newInstance.TrampolineJmpOutDestination = relativeJumpBackOutAddress + nopBytes.Length;
+
+			newInstance.optionalHitCounterPointer = IntPtr.Zero;
+			newInstance.optionalRegisterStructPointer = IntPtr.Zero;
+
+			List<byte> JMPOutBytes = new List<byte> { 0xE9 };
+			JMPOutBytes.AddRange(BitConverter.GetBytes(relativeJumpBackOutAddress + nopBytes.Length));
+			WriteBytes(jumpOutInstructionLocation, JMPOutBytes.ToArray());
+
+			if (IsSuspended)
+				ResumeProcess();
+
+			return newInstance;
+		}
+#endif
+		#endregion
 
 #if X86
 		#region FASM
@@ -1106,13 +1095,13 @@ namespace MiniMem
 #endif
 
 		#region Process Handles Specific Operations
-				/// <summary>
-				/// Try closing handle in remote process by its Handle type and the Handle name
-				/// </summary>
-				/// <param name="strHandleType">The handle type, eg "Mutant" etc</param>
-				/// <param name="strHandleName">The handle name</param>
-				/// <returns>bool</returns>
-				public static bool TryFindDeleteHandle(string strHandleType, string strHandleName)
+		/// <summary>
+		/// Try closing handle in remote process by its Handle type and the Handle name
+		/// </summary>
+		/// <param name="strHandleType">The handle type, eg "Mutant" etc</param>
+		/// <param name="strHandleName">The handle name</param>
+		/// <returns>bool</returns>
+		public static bool TryFindDeleteHandle(string strHandleType, string strHandleName)
 						{
 							if (AttachedProcess.ProcessHandle == IntPtr.Zero || AttachedProcess.ProcessObject == null) return false;
 							if (!AttachedProcess.IsRunning()) return false;
@@ -1136,9 +1125,9 @@ namespace MiniMem
 								return false;
 							}
 						}
-		#endregion
+#endregion
 
-		#region Suspend Process
+#region Suspend Process
 						/// <summary>
 						/// Suspends a remote process
 						/// </summary>
@@ -1196,9 +1185,9 @@ namespace MiniMem
 								CloseHandle(pOpenThread);
 							}
 						}
-		#endregion
+#endregion
 
-		#region Allocate Memory 
+#region Allocate Memory 
 						/// <summary>
 						/// Allocates some memory in the remote process
 						/// </summary>
@@ -1266,42 +1255,71 @@ namespace MiniMem
 							if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 							return VirtualFreeEx(AttachedProcess.ProcessHandle, lpBase, size, 0x8000);
 						}
-		#endregion
+#endregion
 
-		#region Execute Code
-		#if X86
-						/// <summary>
-						/// Converts 32bit Flat assembler valid mnemonics into shellcode and executes said shellcode inside the remote process
-						/// </summary>
-						/// <param name="mnemonics">Valid 32bit flat assembler mnemonics</param>
-						/// <returns></returns>
-						public static void ExecuteCode(string[] mnemonics)
-						{
-							if (AttachedProcess.ProcessHandle == IntPtr.Zero) return;
-							if (mnemonics.Length < 1) return;
+#region Execute Code
+#if X86
+				/// <summary>
+				/// Converts 32bit Flat assembler valid mnemonics into shellcode and executes said shellcode inside the remote process
+				/// </summary>
+				/// <param name="mnemonics">Valid 32bit flat assembler mnemonics</param>
+				/// <returns></returns>
+				public static void ExecuteCode(string[] mnemonics)
+				{
+					if (AttachedProcess.ProcessHandle == IntPtr.Zero) return;
+					if (mnemonics.Length < 1) return;
 
-							byte[] assembled = Assemble(mnemonics);
-							RemoteAllocatedMemory alloc = AllocateMemory(assembled.Length, MemoryProtection.ExecuteReadWrite, AllocationType.Commit);
-							WriteBytes(alloc.Pointer.ToInt32(), assembled);
-							IntPtr hThread = Native.CreateRemoteThread(MiniMem.AttachedProcess.ProcessHandle,
-								IntPtr.Zero,
-								IntPtr.Zero,
-								alloc.Pointer,
-								IntPtr.Zero /* LP PARAMETER  */,
-								(uint)ThreadCreationFlags.Run,
-								IntPtr.Zero);
+					byte[] assembled = Assemble(mnemonics);
+					RemoteAllocatedMemory alloc = AllocateMemory(assembled.Length, MemoryProtection.ExecuteReadWrite, AllocationType.Commit);
+					WriteBytes(alloc.Pointer.ToInt32(), assembled);
+					IntPtr hThread = Native.CreateRemoteThread(MiniMem.AttachedProcess.ProcessHandle,
+						IntPtr.Zero,
+						IntPtr.Zero,
+						alloc.Pointer,
+						IntPtr.Zero /* LP PARAMETER  */,
+						(uint)ThreadCreationFlags.Run,
+						IntPtr.Zero);
 
-							if (hThread == IntPtr.Zero)
-							{
-								FreeMemory(alloc);
-								return;
-							}
-							WaitForSingleObject(hThread, 0xFFFFFFFF);
-							CloseHandle(hThread);
-							FreeMemory(alloc);
-						}
+					if (hThread == IntPtr.Zero)
+					{
+						FreeMemory(alloc);
+						return;
+					}
+					WaitForSingleObject(hThread, 0xFFFFFFFF);
+					CloseHandle(hThread);
+					FreeMemory(alloc);
+				}
+#elif X64
+				/// <summary>
+				/// Executes Shellcode inside remote process
+				/// </summary>
+				/// <param name="shellcode">Shellcode to be executed</param>
+				/// <returns></returns>
+				public static void ExecuteCode(byte[] shellcode)
+				{
+					if (AttachedProcess.ProcessHandle == IntPtr.Zero) return;
+					if (shellcode.Length < 1) return;
 
-		#elif X64
+					RemoteAllocatedMemory alloc = AllocateMemory(shellcode.Length, MemoryProtection.ExecuteReadWrite, AllocationType.Commit);
+					WriteBytes(alloc.Pointer.ToInt32(), shellcode);
+					IntPtr hThread = Native.CreateRemoteThread(MiniMem.AttachedProcess.ProcessHandle,
+						IntPtr.Zero,
+						IntPtr.Zero,
+						alloc.Pointer,
+						IntPtr.Zero /* LP PARAMETER  */,
+						(uint)ThreadCreationFlags.Run,
+						IntPtr.Zero);
+
+					if (hThread == IntPtr.Zero)
+					{
+						FreeMemory(alloc);
+						return;
+					}
+					WaitForSingleObject(hThread, 0xFFFFFFFF);
+					CloseHandle(hThread);
+					FreeMemory(alloc);
+				}
+#elif ANYCPU
 				/// <summary>
 				/// Executes Shellcode inside remote process
 				/// </summary>
@@ -1332,17 +1350,17 @@ namespace MiniMem
 					CloseHandle(hThread);
 					FreeMemory(alloc);
 				}
-		#endif
-		#endregion
+#endif
+#endregion
 
-		#region Modules
-				/// <summary>
-				/// Finds a specified process module inside a remote process by its module name
-				/// </summary>
-				/// <param name="name">Module name</param>
-				/// <param name="exactMatch">None</param>
-				/// <returns>ProcModule</returns>
-				public static ProcModule FindProcessModule(string name, bool exactMatch = true)
+#region Modules
+		/// <summary>
+		/// Finds a specified process module inside a remote process by its module name
+		/// </summary>
+		/// <param name="name">Module name</param>
+		/// <param name="exactMatch">None</param>
+		/// <returns>ProcModule</returns>
+		public static ProcModule FindProcessModule(string name, bool exactMatch = true)
 						{
 							if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 							if (string.IsNullOrEmpty(name)) return null;
@@ -1382,9 +1400,9 @@ namespace MiniMem
 							}
 							return null;
 						}
-		#endregion
+#endregion
 
-		#region Logging
+#region Logging
 						/// <summary>
 						/// Writes a neatly formatted line to the Console
 						/// </summary>
@@ -1436,6 +1454,6 @@ namespace MiniMem
 							}
 							Console.ResetColor();
 						}
-		#endregion
+#endregion
 	}
 }
