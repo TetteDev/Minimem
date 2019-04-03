@@ -24,7 +24,7 @@ namespace MiniMem
 	    /// <summary>
 	    /// Thread 'CallbackThread' itterates through this
 	    /// </summary>
-		public static List<CallbackObject> ActiveCallbacks = new List<CallbackObject>();
+		public static List<Constants.CallbackObject> ActiveCallbacks = new List<Constants.CallbackObject>();
 
 	    /// <summary>
 	    /// Background thread which does most of the magic regarding the register dumping and callbacks for the detour
@@ -69,9 +69,9 @@ namespace MiniMem
 				UpdateInformation();
 			    return ProcessObject.Modules.Cast<ProcessModule>().ToList();
 		    }
-		    public static List<SYSTEM_HANDLE_INFORMATION> GetOpenedHandlesByProcess(string IN_strObjectTypeName = null, string IN_strObjectName = null, bool verbose = false)
+		    public static List<Constants.SYSTEM_HANDLE_INFORMATION> GetOpenedHandlesByProcess(string IN_strObjectTypeName = null, string IN_strObjectName = null, bool verbose = false)
 		    {
-				if (ProcessObject == null) return new List<SYSTEM_HANDLE_INFORMATION>();
+				if (ProcessObject == null) return new List<Constants.SYSTEM_HANDLE_INFORMATION>();
 
 			    uint nStatus;
 			    var nHandleInfoSize = 0x10000;
@@ -103,21 +103,21 @@ namespace MiniMem
 				    ipHandle = new IntPtr(ipHandlePointer.ToInt32() + 4);
 			    }
 
-			    SYSTEM_HANDLE_INFORMATION shHandle;
-			    var lstHandles = new List<SYSTEM_HANDLE_INFORMATION>();
+			    Constants.SYSTEM_HANDLE_INFORMATION shHandle;
+			    var lstHandles = new List<Constants.SYSTEM_HANDLE_INFORMATION>();
 
 			    for (long lIndex = 0; lIndex < lHandleCount; lIndex++)
 			    {
-				    shHandle = new SYSTEM_HANDLE_INFORMATION();
+				    shHandle = new Constants.SYSTEM_HANDLE_INFORMATION();
 				    if (Is64Bits())
 				    {
-					    shHandle = (SYSTEM_HANDLE_INFORMATION) Marshal.PtrToStructure(ipHandle, shHandle.GetType());
+					    shHandle = (Constants.SYSTEM_HANDLE_INFORMATION) Marshal.PtrToStructure(ipHandle, shHandle.GetType());
 					    ipHandle = new IntPtr(ipHandle.ToInt64() + Marshal.SizeOf(shHandle) + 8);
 				    }
 				    else
 				    {
 					    ipHandle = new IntPtr(ipHandle.ToInt64() + Marshal.SizeOf(shHandle));
-					    shHandle = (SYSTEM_HANDLE_INFORMATION) Marshal.PtrToStructure(ipHandle, shHandle.GetType());
+					    shHandle = (Constants.SYSTEM_HANDLE_INFORMATION) Marshal.PtrToStructure(ipHandle, shHandle.GetType());
 				    }
 
 				    if (ProcessObject != null)
@@ -429,7 +429,7 @@ namespace MiniMem
 		/// /// <param name="pattern">The IDA styled pattern</param>
 		/// /// <param name="resultAbsolute">None</param>
 		/// <returns>IntPtr</returns>
-		public static IntPtr FindPatternSingle(ProcModule processModule, string pattern, bool resultAbsolute = true)
+		public static IntPtr FindPatternSingle(Constants.ProcModule processModule, string pattern, bool resultAbsolute = true)
 	    {
 		    if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			if (processModule == null) return IntPtr.Zero;
@@ -982,11 +982,11 @@ namespace MiniMem
 		/// </summary>
 		/// <param name="targetInstructionAddress">The address where to place the initial jmp</param>
 		/// <param name="instructionCount">The amount of bytes you're over writing at the target address</param>
-		/// <param name="shellcode">Shell code to execute inside code cave</param>
+		/// <param name="shellcode">Shell code to execute inside code cave - Keep in mind this expects 64bit shellcode</param>
 		/// <param name="shouldSuspend">Wether or not the program should suspend the remote process during the procedure</param>
 		/// <param name="preserveOriginalInstruction">If the original overwritten bytes should be prepended at the start of the code cave</param>
 		/// <returns>TrampolineInstance</returns>
-		public static TrampolineInstance CreateTrampoline(long targetInstructionAddress, int instructionCount, byte[] shellcode, bool shouldSuspend = true, bool preserveOriginalInstruction = true)
+		public static Constants.TrampolineInstance CreateTrampoline(long targetInstructionAddress, int instructionCount, byte[] shellcode, bool shouldSuspend = true, bool preserveOriginalInstruction = true)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) return null;
 			if (instructionCount < 5)
@@ -1006,9 +1006,9 @@ namespace MiniMem
 				}
 			}
 
-			RemoteAllocatedMemory memoryRegion = AllocateMemory(0x10000, MemoryProtection.ExecuteReadWrite, AllocationType.Commit | AllocationType.Reserve);
+			Constants.RemoteAllocatedMemory memoryRegion = AllocateMemory(0x10000, Constants.MemoryProtection.ExecuteReadWrite, Constants.AllocationType.Commit | Constants.AllocationType.Reserve);
 			if (memoryRegion.Pointer == IntPtr.Zero) throw new Exception("VirtualAllocEx failed allocating memory for the codecave!");
-			TrampolineInstance newInstance = new TrampolineInstance();
+			Constants.TrampolineInstance newInstance = new Constants.TrampolineInstance();
 
 
 			List<byte> JMPInBytes = new List<byte> { 0xE9 };
@@ -1108,10 +1108,10 @@ namespace MiniMem
 							if (string.IsNullOrEmpty(strHandleType) || string.IsNullOrEmpty(strHandleName))
 								return false;
 
-							List<HandleInformation> matchingHandles = GetHandlesByType(strHandleType);
+							List<Constants.HandleInformation> matchingHandles = GetHandlesByType(strHandleType);
 							if (matchingHandles.Count < 1) return false;
 
-							HandleInformation specificHandle = matchingHandles.FirstOrDefault(x => x.HandleName.Contains(strHandleName));
+							Constants.HandleInformation specificHandle = matchingHandles.FirstOrDefault(x => x.HandleName.Contains(strHandleName));
 							if (specificHandle == null) return false;
 
 							try
@@ -1142,7 +1142,7 @@ namespace MiniMem
 
 							foreach (ProcessThread pT in process.Threads)
 							{
-								IntPtr pOpenThread = OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)pT.Id);
+								IntPtr pOpenThread = OpenThread(Constants.ThreadAccess.SUSPEND_RESUME, false, (uint)pT.Id);
 
 								if (pOpenThread == IntPtr.Zero)
 								{
@@ -1169,7 +1169,7 @@ namespace MiniMem
 
 							foreach (ProcessThread pT in process.Threads)
 							{
-								IntPtr pOpenThread = OpenThread(ThreadAccess.SUSPEND_RESUME, false, (uint)pT.Id);
+								IntPtr pOpenThread = OpenThread(Constants.ThreadAccess.SUSPEND_RESUME, false, (uint)pT.Id);
 
 								if (pOpenThread == IntPtr.Zero)
 								{
@@ -1209,13 +1209,13 @@ namespace MiniMem
 						/// <param name="protectionFlags">See "MemoryProtection" enum: https://www.pinvoke.net/default.aspx/kernel32.virtualalloc </param>
 						/// <param name="allocationFlags">See "AllocationType" enum: https://www.pinvoke.net/default.aspx/kernel32.virtualalloc </param>
 						/// <returns>RemoteAllocatedMemory Instance</returns>
-						public static RemoteAllocatedMemory AllocateMemory(int size, MemoryProtection protectionFlags = MemoryProtection.ExecuteReadWrite, AllocationType allocationFlags = AllocationType.Commit | AllocationType.Reserve)
+						public static Constants.RemoteAllocatedMemory AllocateMemory(int size, Constants.MemoryProtection protectionFlags = Constants.MemoryProtection.ExecuteReadWrite, Constants.AllocationType allocationFlags = Constants.AllocationType.Commit | Constants.AllocationType.Reserve)
 						{
 							if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 							if (!AttachedProcess.IsRunning()) throw new Exception("Game is not running anymore!");
 							IntPtr alloc = VirtualAllocEx(AttachedProcess.ProcessHandle, IntPtr.Zero, new IntPtr(size), (uint) allocationFlags, (uint) protectionFlags);
 							if (alloc == IntPtr.Zero) return null;
-							RemoteAllocatedMemory ret = new RemoteAllocatedMemory
+							Constants.RemoteAllocatedMemory ret = new Constants.RemoteAllocatedMemory
 							{
 								AllocationFlags = (uint) allocationFlags,
 								ProtectionFlags = (uint) protectionFlags,
@@ -1230,7 +1230,7 @@ namespace MiniMem
 						/// </summary>
 						/// <param name="memoryItem">Not null instace of RemoteAllocatedMemory object</param>
 						/// <returns>bool</returns>
-						public static bool FreeMemory(RemoteAllocatedMemory memoryItem)
+						public static bool FreeMemory(Constants.RemoteAllocatedMemory memoryItem)
 						{
 							if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 							if (!AttachedProcess.IsRunning()) return false;
@@ -1300,14 +1300,14 @@ namespace MiniMem
 					if (AttachedProcess.ProcessHandle == IntPtr.Zero) return;
 					if (shellcode.Length < 1) return;
 
-					RemoteAllocatedMemory alloc = AllocateMemory(shellcode.Length, MemoryProtection.ExecuteReadWrite, AllocationType.Commit);
+					Constants.RemoteAllocatedMemory alloc = AllocateMemory(shellcode.Length, Constants.MemoryProtection.ExecuteReadWrite, Constants.AllocationType.Commit);
 					WriteBytes(alloc.Pointer.ToInt32(), shellcode);
 					IntPtr hThread = Native.CreateRemoteThread(MiniMem.AttachedProcess.ProcessHandle,
 						IntPtr.Zero,
 						IntPtr.Zero,
 						alloc.Pointer,
 						IntPtr.Zero /* LP PARAMETER  */,
-						(uint)ThreadCreationFlags.Run,
+						(uint)Constants.ThreadCreationFlags.Run,
 						IntPtr.Zero);
 
 					if (hThread == IntPtr.Zero)
@@ -1360,7 +1360,7 @@ namespace MiniMem
 		/// <param name="name">Module name</param>
 		/// <param name="exactMatch">None</param>
 		/// <returns>ProcModule</returns>
-		public static ProcModule FindProcessModule(string name, bool exactMatch = true)
+		public static Constants.ProcModule FindProcessModule(string name, bool exactMatch = true)
 						{
 							if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 							if (string.IsNullOrEmpty(name)) return null;
@@ -1371,7 +1371,7 @@ namespace MiniMem
 								{
 									if (pm.ModuleName.ToLower() == name)
 									{
-										ProcModule ret = new ProcModule();
+										Constants.ProcModule ret = new Constants.ProcModule();
 										ret.Size = (uint)pm.ModuleMemorySize;
 										ret.BaseAddress = pm.BaseAddress;
 										ret.EndAddress = new IntPtr(ret.BaseAddress.ToInt32() + ret.Size);
@@ -1386,7 +1386,7 @@ namespace MiniMem
 								{
 									if (pm.ModuleName.ToLower().Contains(name.ToLower()))
 									{
-										ProcModule ret = new ProcModule();
+										Constants.ProcModule ret = new Constants.ProcModule();
 										ret.Size = (uint)pm.ModuleMemorySize;
 										ret.BaseAddress = pm.BaseAddress;
 										ret.EndAddress = new IntPtr(ret.BaseAddress.ToInt32() + ret.Size);
@@ -1411,23 +1411,23 @@ namespace MiniMem
 						/// <param name="writeToDebug">Also write to Debug output</param>
 						/// <param name="writeToFile">Also write to File</param>
 						/// <returns></returns>
-						public static void Log(string message,MessageType messageType = MessageType.INFO, bool writeToDebug = true, bool writeToFile = false)
+						public static void Log(string message,Constants.MessageType messageType = Constants.MessageType.INFO, bool writeToDebug = true, bool writeToFile = false)
 						{
 							if (string.IsNullOrEmpty(message)) return;
 							ConsoleColor clr = ConsoleColor.White;
 
 							switch (messageType)
 							{
-								case MessageType.DEFAULT:
+								case Constants.MessageType.DEFAULT:
 									clr = ConsoleColor.White;
 									break;
-								case MessageType.INFO:
+								case Constants.MessageType.INFO:
 									clr = ConsoleColor.Green;
 									break;
-								case MessageType.WARNING:
+								case Constants.MessageType.WARNING:
 									clr = ConsoleColor.Yellow;
 									break;
-								case MessageType.ERROR:
+								case Constants.MessageType.ERROR:
 									clr = ConsoleColor.Red;
 									break;
 							}
@@ -1448,7 +1448,7 @@ namespace MiniMem
 								catch
 								{
 									Console.ResetColor();
-									Log("Failed writing logs to textfile!", MessageType.ERROR);
+									Log("Failed writing logs to textfile!", Constants.MessageType.ERROR);
 									return;
 								}
 							}
