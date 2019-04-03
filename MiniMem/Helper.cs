@@ -426,7 +426,16 @@ namespace MiniMem
 			// Use this for relative instructions such as JMP or CALL etc etc
 
 			if (origin == IntPtr.Zero || dest == IntPtr.Zero)
-				throw new Exception($"{nameof(dest)} or {nameof(origin)} were invalid lulz!!!");
+			{
+				if (origin == IntPtr.Zero)
+				{
+					throw new Exception($"IntPtr Origin was Zero!");
+				} else if (dest == IntPtr.Zero)
+				{
+					throw new Exception($"IntPtr Dest was Zero!");
+				}
+			}
+				
 
 			return IntPtr.Subtract(dest, origin.ToInt32());
 		}
