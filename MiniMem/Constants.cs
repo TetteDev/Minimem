@@ -6,6 +6,16 @@ namespace MiniMem
 {
 	public class Constants
 	{
+		public enum MemoryType : uint
+		{
+			RT_REL_ADDRESS = 0x0,
+			RT_ADDRESS = 0x1,
+			RT_LOCATION = 0x2,
+
+			RT_READNEXT4_BYTES = 0x3,
+			RT_READNEXT4_BYTES_RAW = 0x4,
+		}
+
 		public class HandleInformation
 		{
 			public SYSTEM_HANDLE_INFORMATION Advanced;
@@ -93,6 +103,17 @@ namespace MiniMem
 			ObjectHandleInformation = 4
 		}
 
+		public struct MEMORY_BASIC_INFORMATION32
+		{
+			public UIntPtr BaseAddress;
+			public UIntPtr AllocationBase;
+			public uint AllocationProtect;
+			public uint RegionSize;
+			public uint State;
+			public uint Protect;
+			public uint Type;
+		}
+
 		[StructLayout(LayoutKind.Sequential)]
 		public struct OBJECT_TYPE_INFORMATION
 		{
@@ -119,6 +140,32 @@ namespace MiniMem
 			public int PoolType;
 			public int PagedPoolUsage;
 			public int NonPagedPoolUsage;
+		}
+
+		public struct MemoryRegionResult
+		{
+			public IntPtr CurrentBaseAddress { get; set; }
+			public long RegionSize { get; set; }
+			public IntPtr RegionBase { get; set; }
+
+		}
+
+		public class MultiAobResultItem
+		{
+			public string Identifier = "NO_IDENTIFIER_PROVIDED";
+			public string Pattern = "";
+			public long FirstResultAsLong = 0;
+			public string FirstResultAsHexString = "";
+			public List<long> Results;
+		}
+
+		public class MultiAobItem // Used internally for method 'MultiAobScan'
+		{
+			public string OptionalIdentifier = "NO_IDENTIFIER_PROVIDED";
+
+			public string ArrayOfBytesString;
+			public byte[] Pattern;
+			public byte[] Mask;
 		}
 
 		public const int DUPLICATE_SAME_ACCESS = 0x2;
@@ -238,31 +285,48 @@ namespace MiniMem
 			public ushort processorRevision;
 		}
 
+		public enum ReturnType : uint
+		{
+			ADDRESS = 0x0,
+			READ4BYTES = 0x1,
+			READ8BYTES = 0x2,
+		}
+
 		public class Signature
 		{
 			public Signature(string name, Byte[] pattern)
 			{
 				Name = name;
 				Pattern = pattern;
-				FoundOffset = -1;
 			}
 
-			public Signature(string name, string pattern)
+			public Signature(string name, string pattern, long optionalOffsetResult = 0, bool optionalResultAbsolute = false, ReturnType returnType = ReturnType.ADDRESS)
 			{
 				Name = name;
 				Pattern = Helper.Transform(pattern);
-				FoundOffset = -1;
+				FoundResults = new List<long>();
+
+				ResultOffsettedBy = optionalOffsetResult;
+				ResultIsAbsoluteToModuleBase = optionalResultAbsolute;
+				ReturnType = returnType;
 			}
 
 			public string Name { get; private set; }
 			public Byte[] Pattern { get; private set; }
-			public long FoundOffset;
+
+			public ReturnType ReturnType { get; private set; } = ReturnType.ADDRESS;
+			public List<long> FoundResults;
+			public long ResultOffsettedBy = 0;
+			public bool ResultIsAbsoluteToModuleBase = false;
 
 			public override string ToString()
 			{
 				return Name;
 			}
 		}
+
+		
+
 		public struct Byte
 		{
 			public struct Nibble

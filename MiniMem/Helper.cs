@@ -24,14 +24,12 @@ namespace MiniMem
 				return ptr.ToInt32() >= module.BaseAddress.ToInt32() &&
 				       ptr.ToInt32() <= module.EndAddress.ToInt32();
 			}
-			else
+
+			ProcModule pm = MiniMem.FindProcessModule(MiniMem.AttachedProcess.ProcessObject.ProcessName); // Get "main" module
+			if (pm != null)
 			{
-				ProcModule pm = MiniMem.FindProcessModule(MiniMem.AttachedProcess.ProcessObject.ProcessName); // Get "main" module
-				if (pm != null)
-				{
-					return ptr.ToInt32() >= pm.BaseAddress.ToInt32() &&
-					       ptr.ToInt32() <= pm.EndAddress.ToInt32();
-				}
+				return ptr.ToInt32() >= pm.BaseAddress.ToInt32() &&
+				       ptr.ToInt32() <= pm.EndAddress.ToInt32();
 			}
 
 			return ptr != IntPtr.Zero;
@@ -42,6 +40,15 @@ namespace MiniMem
 		public static int GetOffset<T>(this T structObject, string offsetname)
 		{
 			return string.IsNullOrEmpty(offsetname) ? 0 : Marshal.OffsetOf<T>(offsetname).ToInt32();
+		}
+	}
+
+	public static class StringExtensions
+	{
+		public static void Cout(this string strObject)
+		{
+			Console.WriteLine(strObject);
+			Debug.WriteLine(strObject);
 		}
 	}
 
@@ -134,32 +141,70 @@ namespace MiniMem
 			}
 			return result.ToArray();
 		}
-		public static bool Find(byte[] data, Byte[] pattern, out long offsetFound, long offset = 0)
+		public static bool Find(byte[] data, Byte[] pattern, out List<long> offsetsFound, long optionalOffsetResult = 0, bool optionalAbsoluteResult = false, long moduleBase = 0L, ReturnType returnType = ReturnType.ADDRESS)
 		{
-			offsetFound = -1;
+			int HARD_CAP_RESULT_AMOUNT = 25;
+			var offsetsFoundInternal = new List<long>();
 			if (data == null || pattern == null)
+			{
+				offsetsFound = null;
 				return false;
+			}
+				
 			var patternSize = pattern.LongLength;
 			if (data.LongLength == 0 || patternSize == 0)
+			{
+				offsetsFound = null;
 				return false;
+			}
+				
 
-			for (long i = offset, pos = 0; i < data.LongLength; i++)
+			for (long i = 0, pos = 0; i < data.LongLength; i++)
 			{
 				if (matchByte(data[i], ref pattern[pos])) //check if the current data byte matches the current pattern byte
 				{
 					pos++;
 					if (pos != patternSize) continue;
-					offsetFound = i - patternSize + 1;
-					return true;
+					var internalOffsetFound = i - patternSize + 1;
+					if (optionalAbsoluteResult)
+					{
+						internalOffsetFound += moduleBase;
+					}
+
+					if (optionalOffsetResult != 0)
+						internalOffsetFound += optionalOffsetResult;
+					switch (returnType)
+					{
+						case ReturnType.ADDRESS:
+							offsetsFoundInternal.Add(internalOffsetFound);
+							break;
+						case ReturnType.READ4BYTES:
+							byte[] byteSequence4 = MiniMem.ReadBytes(optionalAbsoluteResult ? internalOffsetFound : moduleBase + internalOffsetFound, 4);
+							offsetsFoundInternal.Add((long)BitConverter.ToInt32(byteSequence4, 0));
+							break;
+						case ReturnType.READ8BYTES:
+							byte[] byteSequence9 = MiniMem.ReadBytes(optionalAbsoluteResult ? internalOffsetFound : moduleBase + internalOffsetFound, 8);
+							offsetsFoundInternal.Add(BitConverter.ToInt64(byteSequence9, 0));
+							break;
+					}
+					pos = 0;
+					if (offsetsFoundInternal.Count >= HARD_CAP_RESULT_AMOUNT)
+					{
+						Debug.WriteLine($"Hard cap of {HARD_CAP_RESULT_AMOUNT} addresses have been hit so far with {data.LongLength - i} bytes left unread in buffer, stopping procedure ...");
+						break;
+					}
+						
 				}
-				else //fix by Computer_Angel
+				else
 				{
 					i -= pos;
 					pos = 0; //reset current pattern position
 				}
 			}
 
-			return false;
+			offsetsFound = offsetsFoundInternal;
+			return offsetsFound.Count > 0;
+			//return false;
 		}
 
 		public static void CallbackLoop()

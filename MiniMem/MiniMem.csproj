@@ -51,7 +51,6 @@
     <Compile Include="Constants.cs">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Compile>
-    <Compile Include="Freezer.cs" />
     <Compile Include="Helper.cs" />
     <Compile Include="MiniMem.cs" />
     <Compile Include="Native.cs" />
