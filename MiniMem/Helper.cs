@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
@@ -42,7 +43,6 @@ namespace MiniMem
 			return string.IsNullOrEmpty(offsetname) ? 0 : Marshal.OffsetOf<T>(offsetname).ToInt32();
 		}
 	}
-
 	public static class StringExtensions
 	{
 		public static void Cout(this string strObject)
@@ -55,6 +55,70 @@ namespace MiniMem
 	public class Helper
 	{
 		public static bool bCallbackThreadExitFlag = false;
+
+		public static void CompareScanMulti(MemoryRegionResult item, ref List<Tuple<MultiAobItem, ConcurrentBag<long>>> aobCollection, IntPtr processHandle)
+		{
+			if (processHandle == IntPtr.Zero) return;
+			foreach (var aobToSearchFor in aobCollection)
+			{
+				if (aobToSearchFor.Item1.Mask.Length != aobToSearchFor.Item1.Pattern.Length)
+					throw new ArgumentException($"{nameof(aobToSearchFor.Item1.Pattern)}.Length != {nameof(aobToSearchFor.Item1.Mask)}.Length");
+			}
+
+			IntPtr buffer = Marshal.AllocHGlobal((int)item.RegionSize);
+			ReadProcessMemory(processHandle, item.CurrentBaseAddress, buffer, (UIntPtr)item.RegionSize, out ulong bytesRead);
+
+			foreach (var aobPattern in aobCollection)
+			{
+				int result = 0 - aobPattern.Item1.Pattern.Length;
+				unsafe
+				{
+					do
+					{
+
+						result = FindPattern((byte*)buffer.ToPointer(), (int)bytesRead, aobPattern.Item1.Pattern, aobPattern.Item1.Mask, result + aobPattern.Item1.Pattern.Length);
+
+						if (result >= 0)
+							aobPattern.Item2.Add((long)item.CurrentBaseAddress + result);
+
+					} while (result != -1);
+				}
+			}
+
+			Marshal.FreeHGlobal(buffer);
+		}
+
+
+		[DllImport("kernel32.dll")]
+		private static extern bool ReadProcessMemory(IntPtr hProcess, UIntPtr lpBaseAddress, [Out] IntPtr lpBuffer, UIntPtr nSize, out ulong lpNumberOfBytesRead);
+		private static unsafe int FindPattern(byte* body, int bodyLength, byte[] pattern, byte[] masks, int start = 0)
+		{
+			int foundIndex = -1;
+
+			if (bodyLength <= 0 || pattern.Length <= 0 || start > bodyLength - pattern.Length ||
+			    pattern.Length > bodyLength) return foundIndex;
+
+			for (int index = start; index <= bodyLength - pattern.Length; index++)
+			{
+				if (((body[index] & masks[0]) != (pattern[0] & masks[0]))) continue;
+
+				var match = true;
+				for (int index2 = 1; index2 <= pattern.Length - 1; index2++)
+				{
+					if ((body[index + index2] & masks[index2]) == (pattern[index2] & masks[index2])) continue;
+					match = false;
+					break;
+
+				}
+
+				if (!match) continue;
+
+				foundIndex = index;
+				break;
+			}
+
+			return foundIndex;
+		}
 
 		public static string Format(string pattern)
 		{
@@ -193,7 +257,6 @@ namespace MiniMem
 						Debug.WriteLine($"Hard cap of {HARD_CAP_RESULT_AMOUNT} addresses have been hit so far with {data.LongLength - i} bytes left unread in buffer, stopping procedure ...");
 						break;
 					}
-						
 				}
 				else
 				{
@@ -213,7 +276,7 @@ namespace MiniMem
 			{
 				if (MiniMem.ActiveCallbacks.Count < 1 || MiniMem.AttachedProcess.ProcessHandle == IntPtr.Zero)
 				{
-					Thread.Sleep(1000);
+					Thread.Sleep(500);
 					continue;
 				}
 
@@ -242,7 +305,7 @@ namespace MiniMem
 				if (bCallbackThreadExitFlag)
 					break;
 					
-				Thread.Sleep(500);
+				Thread.Sleep(25);
 			}
 
 			bCallbackThreadExitFlag = false;
@@ -361,6 +424,7 @@ namespace MiniMem
 			return ret;
 		}
 
+		/*
 		private IntPtr FindFreeBlockForRegion(IntPtr baseAddress, int size)
 		{
 			IntPtr minAddress = IntPtr.Subtract(baseAddress, 0x70000000);
@@ -466,6 +530,7 @@ namespace MiniMem
 			return ret;
 		}
 
+	*/
 		public static IntPtr CalculateRelativeOffset(IntPtr origin, IntPtr dest)
 		{
 			// Use this for relative instructions such as JMP or CALL etc etc

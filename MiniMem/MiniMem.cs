@@ -24,6 +24,7 @@ namespace MiniMem
 		/// </summary>
 		public static List<CallbackObject> ActiveCallbacks = new List<CallbackObject>();
 		private static Thread CallbackThread = null;
+		private static int CallbackPollingInterval = 100;
 
 		/// <summary>
 		/// Contains information about the current process that you have attached too
@@ -53,7 +54,7 @@ namespace MiniMem
 				if (ProcessObject == null && ProcessHandle == IntPtr.Zero) return false;
 
 				if (ProcessObject == null) return false;
-				bool processObjectStillActive = Process.GetProcesses().FirstOrDefault(x => x.Id == ProcessObject.Id) != null;
+				bool processObjectStillActive = Process.GetProcesses().FirstOrDefault(x => x.Id == ProcessObject?.Id) != null;
 				try
 				{
 					if (ProcessHandle == IntPtr.Zero) return false;
@@ -276,9 +277,7 @@ namespace MiniMem
 		#endregion
 
 		#region Pattern Scanner
-
 		#region Main Methods for scanning multiple patterns
-
 		private static Signature[] FindPatternMultiple(byte[] buffer, Signature[] signatures, bool useParallel = true)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
@@ -331,30 +330,16 @@ namespace MiniMem
 			ReadProcessMemory((int) AttachedProcess.ProcessHandle, (int) pm.BaseAddress, buffer, buffer.Length, ref m_iNumberOfBytesRead);
 
 			var found = new ConcurrentBag<Signature>();
-			if (useParallel)
+			if (useParallel && signatures.Length > 1)
 			{
-				if (signatures.Length > 1)
+				Parallel.ForEach(signatures, signature =>
 				{
-					Parallel.ForEach(signatures, signature =>
+					if (Find(buffer, signature.Pattern, out signature.FoundResults, signature.ResultOffsettedBy, signature.ResultIsAbsoluteToModuleBase,
+						signature.ResultIsAbsoluteToModuleBase ? pm.BaseAddress.ToInt64() : 0L, signature.ReturnType))
 					{
-						if (Find(buffer, signature.Pattern, out signature.FoundResults, signature.ResultOffsettedBy, signature.ResultIsAbsoluteToModuleBase,
-							signature.ResultIsAbsoluteToModuleBase ? pm.BaseAddress.ToInt64() : 0L, signature.ReturnType))
-						{
-							found.Add(signature);
-						}
-					});
-				}
-				else
-				{
-					foreach (Signature signature in signatures)
-					{
-						if (Find(buffer, signature.Pattern, out signature.FoundResults, signature.ResultOffsettedBy, signature.ResultIsAbsoluteToModuleBase,
-							signature.ResultIsAbsoluteToModuleBase ? pm.BaseAddress.ToInt64() : 0L, signature.ReturnType))
-						{
-							found.Add(signature);
-						}
+						found.Add(signature);
 					}
-				}
+				});
 			}
 			else
 			{
@@ -399,6 +384,163 @@ namespace MiniMem
 		}
 
 		#endregion
+
+		public static async Task<List<MultiAobResultItem>> MultiAobScan(string[][] byteArrays, bool readable = true, bool writable = false, bool executable = true, long start = 0, long end = 123)
+		{
+			if (AttachedProcess.ProcessHandle == IntPtr.Zero) return new List<MultiAobResultItem>();
+			if (byteArrays == null || byteArrays.Length < 1) return new List<MultiAobResultItem>();
+
+			var memRegionList = new List<MemoryRegionResult>();
+			var itms = new List<Tuple<MultiAobItem, ConcurrentBag<long>>>();
+
+			foreach (var aob in byteArrays)
+			{
+				var tmpSplitPattern = aob[0].Split(' ');
+
+				var tmpPattern = new byte[tmpSplitPattern.Length];
+				var tmpMask = new byte[tmpSplitPattern.Length];
+
+				for (var i = 0; i < tmpSplitPattern.Length; i++)
+				{
+					var ba = tmpSplitPattern[i];
+
+					if (ba == "??" || ba.Length == 1 && ba == "?")
+					{
+						tmpMask[i] = 0x00;
+						tmpSplitPattern[i] = "0x00";
+					}
+					else if (char.IsLetterOrDigit(ba[0]) && ba[1] == '?')
+					{
+						tmpMask[i] = 0xF0;
+						tmpSplitPattern[i] = ba[0] + "0";
+					}
+					else if (char.IsLetterOrDigit(ba[1]) && ba[0] == '?')
+					{
+						tmpMask[i] = 0x0F;
+						tmpSplitPattern[i] = "0" + ba[1];
+					}
+					else
+					{
+						tmpMask[i] = 0xFF;
+					}
+				}
+
+				for (var i = 0; i < tmpSplitPattern.Length; i++)
+					tmpPattern[i] = (byte) (Convert.ToByte(tmpSplitPattern[i], 16) & tmpMask[i]);
+
+				var itm = new MultiAobItem
+				{
+					ArrayOfBytesString = aob[0],
+					Mask = tmpMask,
+					Pattern = tmpPattern,
+					OptionalIdentifier = string.IsNullOrEmpty(aob[1]) ? "NO_IDENTIFIER_SPECIFIED" : aob[1]
+				};
+
+				itms.Add(new Tuple<MultiAobItem, ConcurrentBag<long>>(itm, new ConcurrentBag<long>()));
+			}
+
+			GetSystemInfo(out var sys_info);
+
+			var proc_min_address = sys_info.minimumApplicationAddress;
+			var proc_max_address = sys_info.maximumApplicationAddress;
+
+			start = start < (long) proc_min_address.ToUInt64() ? (long) proc_min_address.ToUInt64() : start;
+			end = end > (long) proc_max_address.ToUInt64() ? (long) proc_max_address.ToUInt64() : end;
+
+			var currentBaseAddress = new UIntPtr((ulong) start);
+
+			uint MEM_COMMIT = 0x00001000;
+			uint PAGE_GUARD = 0x100;
+			uint PAGE_NOACCESS = 0x01;
+			uint MEM_PRIVATE = 0x20000;
+			uint MEM_IMAGE = 0x1000000;
+			uint PAGE_READONLY = 0x02;
+			uint PAGE_READWRITE = 0x04;
+			uint PAGE_WRITECOPY = 0x08;
+			uint PAGE_EXECUTE_READWRITE = 0x40;
+			uint PAGE_EXECUTE_WRITECOPY = 0x80;
+			uint PAGE_EXECUTE = 0x10;
+			uint PAGE_EXECUTE_READ = 0x20;
+
+			while (VirtualQueryExCustom(AttachedProcess.ProcessHandle, currentBaseAddress, out var memInfo).ToUInt64() != 0 &&
+			       currentBaseAddress.ToUInt64() < (ulong) end &&
+			       currentBaseAddress.ToUInt64() + memInfo.RegionSize >
+			       currentBaseAddress.ToUInt64())
+			{
+				var isValid = memInfo.State == MEM_COMMIT;
+				isValid &= memInfo.BaseAddress.ToUInt64() < proc_max_address.ToUInt64();
+				isValid &= (memInfo.Protect & PAGE_GUARD) == 0;
+				isValid &= (memInfo.Protect & PAGE_NOACCESS) == 0;
+				isValid &= memInfo.Type == MEM_PRIVATE || memInfo.Type == MEM_IMAGE;
+
+				if (isValid)
+				{
+					var isReadable = (memInfo.Protect & PAGE_READONLY) > 0;
+
+					var isWritable = (memInfo.Protect & PAGE_READWRITE) > 0 ||
+					                 (memInfo.Protect & PAGE_WRITECOPY) > 0 ||
+					                 (memInfo.Protect & PAGE_EXECUTE_READWRITE) > 0 ||
+					                 (memInfo.Protect & PAGE_EXECUTE_WRITECOPY) > 0;
+
+					var isExecutable = (memInfo.Protect & PAGE_EXECUTE) > 0 ||
+					                   (memInfo.Protect & PAGE_EXECUTE_READ) > 0 ||
+					                   (memInfo.Protect & PAGE_EXECUTE_READWRITE) > 0 ||
+					                   (memInfo.Protect & PAGE_EXECUTE_WRITECOPY) > 0;
+
+					isReadable &= readable;
+					isWritable &= writable;
+					isExecutable &= executable;
+
+					isValid &= isReadable || isWritable || isExecutable;
+				}
+
+				if (!isValid)
+				{
+					currentBaseAddress = new UIntPtr(memInfo.BaseAddress.ToUInt64() + memInfo.RegionSize);
+					continue;
+				}
+
+				var memRegion = new MemoryRegionResult
+				{
+					CurrentBaseAddress = currentBaseAddress,
+					RegionSize = memInfo.RegionSize,
+					RegionBase = memInfo.BaseAddress
+				};
+
+				currentBaseAddress = new UIntPtr(memInfo.BaseAddress.ToUInt64() + memInfo.RegionSize);
+
+				if (memRegionList.Count > 0)
+				{
+					var previousRegion = memRegionList[memRegionList.Count - 1];
+
+					if ((long) previousRegion.RegionBase + previousRegion.RegionSize == (long) memInfo.BaseAddress)
+					{
+						memRegionList[memRegionList.Count - 1] = new MemoryRegionResult
+						{
+							CurrentBaseAddress = previousRegion.CurrentBaseAddress,
+							RegionBase = previousRegion.RegionBase,
+							RegionSize = previousRegion.RegionSize + memInfo.RegionSize
+						};
+
+						continue;
+					}
+				}
+
+				memRegionList.Add(memRegion);
+			}
+
+			Parallel.ForEach(memRegionList,
+				(item, parallelLoopState, index) => { CompareScanMulti(item, ref itms, AttachedProcess.ProcessHandle); });
+
+			return itms.Select(itm1 => new MultiAobResultItem
+			{
+				Identifier = itm1.Item1.OptionalIdentifier,
+				Pattern = itm1.Item1.ArrayOfBytesString,
+				Results = itm1.Item2.OrderBy(c => c).ToList(),
+				FirstResultAsLong = itm1.Item2.OrderBy(c => c).ToList().FirstOrDefault() == 0 ? 0 : itm1.Item2.OrderBy(c => c).ToList().FirstOrDefault(),
+				FirstResultAsHexString = itm1.Item2.OrderBy(c => c).ToList().FirstOrDefault() == 0 ? "0x0" : $"0x{itm1.Item2.OrderBy(c => c).ToList().FirstOrDefault():X8}"
+			}).ToList();
+		}
 
 		/// <summary>
 		/// Searches byte[] for a sequence of bytes
@@ -1156,7 +1298,7 @@ namespace MiniMem
 		}
 
 		public static bool CreateTrampolineAndCallback(IntPtr targetAddress, int targetAddressInstructionCount, string[] mnemonics, CallbackDelegate codeExecutedEventDelegate, out CallbackObject createdObject,
-			string identifier = "", bool shouldSuspend = true, bool preserveOriginalInstruction = false, bool implementCallback = true, bool implementRegisterDump = true)
+			string identifier = "", bool shouldSuspend = true, bool preserveOriginalInstruction = false, bool implementCallback = true, bool implementRegisterDump = true, bool printDebugDetourData = false)
 		{
 			#region Function Specific Variables
 
@@ -1325,15 +1467,19 @@ namespace MiniMem
 
 			if (originalInstructionBytes.Length > 0 && preserveOriginalInstruction)
 			{
+				// if (put_original_bytes_after_new_code)
+				//	do that here
+				// else {
 				byte[] combined = new byte[codeCaveBytes.Length + originalInstructionBytes.Length];
 				combined = originalInstructionBytes.Concat(codeCaveBytes).ToArray();
 				codeCaveBytes = combined;
+				// }
 			}
 
 			WriteBytes(codeCavePointer.Pointer.ToInt64(), codeCaveBytes);
 
 			IntPtr currentPosition = IntPtr.Add(codeCavePointer.Pointer, codeCaveBytes.Length);
-			IntPtr relativeOffsetForJmpOut = Helper.CalculateRelativeOffset(currentPosition, targetAddress);
+			IntPtr relativeOffsetForJmpOut = CalculateRelativeOffset(currentPosition, targetAddress);
 
 			List<byte> jmpBytesOut = new List<byte> {0xE9};
 			jmpBytesOut.AddRange(BitConverter.GetBytes(relativeOffsetForJmpOut.ToInt32()));
@@ -1375,17 +1521,20 @@ namespace MiniMem
 			
 			completeMnemonics.Add($"jmp {BitConverter.ToInt32(jmpBytesOut.ToArray(), 1)} // JMP back to original code (0x{targetAddress.ToInt32() + targetAddressInstructionCount:X})");
 
-			string formattedSucessMessage = $"Trampoline successfully injected at address 0x{targetAddress.ToInt32():X} in process '{AttachedProcess.ProcessObject.ProcessName}'!\n\n" +
-			                                $"	* Dumped Register Values Struct Start Address: 0x{registerStructurePointer.Pointer.ToInt32():X}\n" +
-			                                $"	* Hitcount Pointer: 0x{callbackPointer.Pointer.ToInt32():X}\n\n" +
-			                                $"	* Codecave Start Address: 0x{codeCavePointer.Pointer.ToInt32():X}\n" +
-			                                "	* Codecave Allocated Size: 0x10000\n" +
-			                                $"	* Codecave Code Size: 0x{codeCaveBytes.Length + 5}\n" +
-			                                $"	* Injected Mnemonics in Codecave(Original overwritten bytes excluded):\n\n	{string.Join("	\n	", completeMnemonics.ToArray())}\n\n" +
-			                                $"	* Codecave Return Address: 0x{targetAddress.ToInt32() + targetAddressInstructionCount:X}\n";
+			if (printDebugDetourData)
+			{
+				string formattedSucessMessage = $"Trampoline successfully injected at address 0x{targetAddress.ToInt32():X} in process '{AttachedProcess.ProcessObject.ProcessName}'!\n\n" +
+				                                $"	* Dumped Register Values Struct Start Address: 0x{registerStructurePointer.Pointer.ToInt32():X}\n" +
+				                                $"	* Hitcount Pointer: 0x{callbackPointer.Pointer.ToInt32():X}\n\n" +
+				                                $"	* Codecave Start Address: 0x{codeCavePointer.Pointer.ToInt32():X}\n" +
+				                                $"	* Codecave Allocated Size: 0x{codeCavePointer.Size:X8}\n" +
+				                                $"	* Codecave Code Size: 0x{codeCaveBytes.Length + 5}\n" +
+				                                $"	* Injected Mnemonics in Codecave(Original overwritten bytes excluded):\n\n	{string.Join("	\n	", completeMnemonics.ToArray())}\n\n" +
+				                                $"	* Codecave Return Address: 0x{targetAddress.ToInt32() + targetAddressInstructionCount:X}\n";
 
-			Log(formattedSucessMessage);
-
+				Log(formattedSucessMessage);
+			}
+			
 			if (shouldSuspend && didSuspend)
 			{
 				ResumeProcess(); // Resume process
@@ -1403,6 +1552,7 @@ namespace MiniMem
 
 			if (toClear != null)
 			{
+				if (toClear.class_TrampolineInfo.OriginalBytes == null || toClear.class_TrampolineInfo.OriginalBytes.Length < 1) return false;
 				WriteBytes(toClear.class_TrampolineInfo.TrampolineOrigin, toClear.class_TrampolineInfo.OriginalBytes);
 				FreeMemory(toClear.class_TrampolineInfo.AllocatedMemory);
 				return true;
@@ -1502,8 +1652,12 @@ namespace MiniMem
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) return;
 			var process = AttachedProcess.ProcessObject;
 
-			if (process.ProcessName == String.Empty)
+			if (process.ProcessName == string.Empty || process == null)
+			{
+				Log("Warning, process object was null in function SuspendProcess()", MessageType.ERROR);
 				return;
+			}
+				
 
 			foreach (ProcessThread pT in process.Threads)
 			{
@@ -1529,8 +1683,12 @@ namespace MiniMem
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) return;
 			var process = AttachedProcess.ProcessObject;
 
-			if (process.ProcessName == String.Empty)
+			if (process.ProcessName == string.Empty || process == null)
+			{
+				Log("Warning, process object was null in function ResumeProcess()", MessageType.ERROR);
 				return;
+			}
+				
 
 			foreach (ProcessThread pT in process.Threads)
 			{

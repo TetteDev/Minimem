@@ -57,6 +57,32 @@ namespace MiniMem
 				ObjectInformationClass, IntPtr ObjectInformation, int ObjectInformationLength,
 			ref int returnLength);
 
+		[DllImport("kernel32.dll", EntryPoint = "VirtualQueryEx")]
+		public static extern UIntPtr Native_VirtualQueryEx(IntPtr hProcess, UIntPtr lpAddress,
+			out Constants.MEMORY_BASIC_INFORMATION32 lpBuffer, UIntPtr dwLength);
+
+		[DllImport("kernel32.dll", EntryPoint = "VirtualQueryEx")]
+		public static extern UIntPtr Native_VirtualQueryEx(IntPtr hProcess, UIntPtr lpAddress,
+			out Constants.MEMORY_BASIC_INFORMATION64 lpBuffer, UIntPtr dwLength);
+
+		public static UIntPtr VirtualQueryExCustom(IntPtr hProcess, UIntPtr lpAddress,
+			out Constants.MEMORY_BASIC_INFORMATION32 lpBuffer)
+		{
+			Constants.MEMORY_BASIC_INFORMATION32 tmp32 = new Constants.MEMORY_BASIC_INFORMATION32();
+
+			var retVal = Native_VirtualQueryEx(hProcess, lpAddress, out tmp32, new UIntPtr((uint)Marshal.SizeOf(tmp32)));
+
+			lpBuffer.BaseAddress = tmp32.BaseAddress;
+			lpBuffer.AllocationBase = tmp32.AllocationBase;
+			lpBuffer.AllocationProtect = tmp32.AllocationProtect;
+			lpBuffer.RegionSize = tmp32.RegionSize;
+			lpBuffer.State = tmp32.State;
+			lpBuffer.Protect = tmp32.Protect;
+			lpBuffer.Type = tmp32.Type;
+
+			return retVal;
+		}
+
 		[DllImport("kernel32.dll")]
 		public static extern IntPtr GetCurrentProcess();
 

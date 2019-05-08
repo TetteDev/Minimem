@@ -144,9 +144,9 @@ namespace MiniMem
 
 		public struct MemoryRegionResult
 		{
-			public IntPtr CurrentBaseAddress { get; set; }
+			public UIntPtr CurrentBaseAddress { get; set; }
 			public long RegionSize { get; set; }
-			public IntPtr RegionBase { get; set; }
+			public UIntPtr RegionBase { get; set; }
 
 		}
 
@@ -274,13 +274,13 @@ namespace MiniMem
 		{
 			public ushort processorArchitecture;
 			ushort reserved;
-			public int pageSize;
-			public IntPtr minimumApplicationAddress;
-			public IntPtr maximumApplicationAddress;
+			public uint pageSize;
+			public UIntPtr minimumApplicationAddress;
+			public UIntPtr maximumApplicationAddress;
 			public IntPtr activeProcessorMask;
 			public uint numberOfProcessors;
 			public uint processorType;
-			public int allocationGranularity;
+			public uint allocationGranularity;
 			public ushort processorLevel;
 			public ushort processorRevision;
 		}
@@ -407,8 +407,35 @@ namespace MiniMem
 			public void Restore()
 			{
 				if (OriginalBytes != null && OriginalBytes.Length > 0)
-					MiniMem.WriteBytes(TrampolineOrigin, OriginalBytes);
-				AllocatedMemory.Free();	
+				{
+					if (SuspendNeeded)
+					{
+						// Suspend
+						try
+						{
+							MiniMem.SuspendProcess();
+							var suspendFlag = true;
+							MiniMem.WriteBytes(TrampolineOrigin, OriginalBytes);
+
+							if (suspendFlag && SuspendNeeded)
+							{
+								MiniMem.ResumeProcess();
+							}
+						}
+						catch
+						{
+							MiniMem.WriteBytes(TrampolineOrigin, OriginalBytes);
+						}
+						
+					}
+					else
+					{
+						MiniMem.WriteBytes(TrampolineOrigin, OriginalBytes);
+					}
+				}
+
+					
+				AllocatedMemory?.Free();	
 			}
 		}
 
