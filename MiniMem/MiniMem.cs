@@ -972,16 +972,6 @@ namespace MiniMem
 			return ByteArrayToStructure<T>(buffer);
 		}
 
-		public static T ReadMemoryProtected<T>(long address) where T : struct
-		{
-			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
-			VirtualProtectEx(AttachedProcess.ProcessHandle, new IntPtr(address), Marshal.SizeOf(typeof(T)), 0x40, out var oldProtection);
-			var buffer = new byte[Marshal.SizeOf(typeof(T))];
-			ReadProcessMemory((int) AttachedProcess.ProcessHandle, (int) address, buffer, buffer.Length, ref m_iNumberOfBytesRead);
-			VirtualProtectEx(AttachedProcess.ProcessHandle, new IntPtr(address), Marshal.SizeOf(typeof(T)), oldProtection, out oldProtection);
-			return ByteArrayToStructure<T>(buffer);
-		}
-
 		/// <summary>
 		/// Use marshalling to read an array from memory
 		/// </summary>
@@ -1049,15 +1039,6 @@ namespace MiniMem
 			return WriteProcessMemory((int) AttachedProcess.ProcessHandle, (int) address, memory, memory.Length, out var numBytesRead);
 		}
 
-		public static void WriteMemoryProtected<T>(long address, object value) where T : struct
-		{
-			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
-			VirtualProtectEx(AttachedProcess.ProcessHandle, new IntPtr(address), Marshal.SizeOf(value), 0x40, out var oldProtection);
-			var buffer = StructureToByteArray(value);
-			WriteProcessMemory((int) AttachedProcess.ProcessHandle, (int) address, buffer, buffer.Length, out m_iNumberOfBytesWritten);
-			VirtualProtectEx(AttachedProcess.ProcessHandle, new IntPtr(address), Marshal.SizeOf(value), oldProtection, out oldProtection);
-		}
-
 		public static bool WriteMultiLevelPointer<T>(long baseAddress, object value, params int[] offsets) where T : struct
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
@@ -1086,12 +1067,20 @@ namespace MiniMem
 			return WriteProcessMemory((int) AttachedProcess.ProcessHandle, (int) address, buffer, buffer.Length, out m_iNumberOfBytesWritten);
 		}
 
-		public static void WriteArray<T>(long address, T[] arr)
+		public static void WriteArray<T>(long address, T[] arr) where T : struct
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			if (arr == null || arr.Length < 1) return;
 
+			// TODO : IMPLEMENT THIS FULLY
 
+			byte[] buff = ReadBytes(address, Marshal.SizeOf(typeof(T)) * arr.Length);
+			if (buff.Length < 1) return;
+
+			for (int i = 0; i < buff.Length; i += Marshal.SizeOf(typeof(T)))
+			{
+				
+			}
 		} 
 
 		#endregion
@@ -1761,7 +1750,7 @@ namespace MiniMem
 			if (!AttachedProcess.IsRunning()) return false;
 			try
 			{
-				return VirtualFreeEx(AttachedProcess.ProcessHandle, memoryItem.Pointer, memoryItem.Size, 0x8000);
+				return VirtualFreeEx(AttachedProcess.ProcessHandle, memoryItem.Pointer, 0, 0x8000);
 			}
 			catch
 			{
@@ -1778,7 +1767,7 @@ namespace MiniMem
 		public static bool FreeMemory(IntPtr lpBase, int size)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
-			return VirtualFreeEx(AttachedProcess.ProcessHandle, lpBase, size, 0x8000);
+			return VirtualFreeEx(AttachedProcess.ProcessHandle, lpBase, 0, 0x8000);
 		}
 
 		#endregion
@@ -1814,6 +1803,78 @@ namespace MiniMem
 			WaitForSingleObject(hThread, 0xFFFFFFFF);
 			CloseHandle(hThread);
 			FreeMemory(alloc);
+		}
+
+		public static bool ExecuteCodeEx<T>(string[] mnemonics, out T returnvalue) where T : struct 
+		{
+			if (mnemonics == null || mnemonics.Length < 1)
+			{
+				returnvalue = default(T);
+				return false;
+			}
+
+			List<string> list = mnemonics.ToList();
+			int callIdx = list.FindLastIndex(x => x.StartsWith("call"));
+
+			if (callIdx != -1)
+			{
+				var mem = AllocateMemory(4);
+				if (mem.Pointer == IntPtr.Zero)
+				{
+					throw new Exception("luls");
+				}
+				list.Insert(callIdx + 1, $"mov [{mem.Pointer}],eax");
+
+				if (!TryAssemble(list.ToArray(), false, out byte[] assembledBytes))
+				{
+					throw new Exception("Invalid Mnemonics!");
+				}
+
+				RemoteAllocatedMemory alloc = AllocateMemory(assembledBytes.Length, MemoryProtection.ExecuteReadWrite, AllocationType.Commit);
+				if (alloc.Pointer == IntPtr.Zero)
+				{
+					returnvalue = default(T);
+					return false;
+				}
+
+				WriteBytes(alloc.Pointer.ToInt32(), assembledBytes);
+				IntPtr hThread = Native.CreateRemoteThread(AttachedProcess.ProcessHandle,
+					IntPtr.Zero,
+					IntPtr.Zero,
+					alloc.Pointer,
+					IntPtr.Zero /* LP PARAMETER  */,
+					(uint)ThreadCreationFlags.Run,
+					IntPtr.Zero);
+
+				if (hThread == IntPtr.Zero)
+				{
+					FreeMemory(alloc);
+					FreeMemory(mem);
+					returnvalue = default(T);
+					return false;
+				}
+				WaitForSingleObject(hThread, 0xFFFFFFFF);
+				CloseHandle(hThread);
+				FreeMemory(alloc);
+
+				try
+				{
+					returnvalue = ReadMemory<T>(mem.Pointer.ToInt64());
+					return true;
+				}
+				catch
+				{
+					throw new Exception("Failed reading return value from address 0x" + mem);
+				}
+				finally
+				{
+					FreeMemory(mem);
+				}
+			}
+			else
+			{
+				throw new Exception("Cannot find 'call' instruction in mnemonics");
+			}
 		}
 
 		/// <summary>
@@ -1927,33 +1988,25 @@ namespace MiniMem
 			{
 				if (exactMatch)
 				{
-					if (pm.ModuleName.ToLower() == name)
-					{
-						ProcModule ret = new ProcModule();
-						ret.Size = (uint) pm.ModuleMemorySize;
-						ret.BaseAddress = pm.BaseAddress;
-						ret.EndAddress = new IntPtr(ret.BaseAddress.ToInt32() + ret.Size);
-						ret.EntryPointAddress = pm.EntryPointAddress;
-						ret.BaseName = pm.ModuleName;
-						ret.FileName = pm.FileName;
+					if (pm.ModuleName.ToLower() != name) continue;
+					ProcModule ret = new ProcModule {Size = (uint) pm.ModuleMemorySize, BaseAddress = pm.BaseAddress};
+					ret.EndAddress = new IntPtr(ret.BaseAddress.ToInt32() + ret.Size);
+					ret.EntryPointAddress = pm.EntryPointAddress;
+					ret.BaseName = pm.ModuleName;
+					ret.FileName = pm.FileName;
 
-						return ret;
-					}
+					return ret;
 				}
 				else
 				{
-					if (pm.ModuleName.ToLower().Contains(name.ToLower()))
-					{
-						ProcModule ret = new ProcModule();
-						ret.Size = (uint) pm.ModuleMemorySize;
-						ret.BaseAddress = pm.BaseAddress;
-						ret.EndAddress = new IntPtr(ret.BaseAddress.ToInt32() + ret.Size);
-						ret.EntryPointAddress = pm.EntryPointAddress;
-						ret.BaseName = pm.ModuleName;
-						ret.FileName = pm.FileName;
+					if (!pm.ModuleName.ToLower().Contains(name.ToLower())) continue;
+					ProcModule ret = new ProcModule {Size = (uint) pm.ModuleMemorySize, BaseAddress = pm.BaseAddress};
+					ret.EndAddress = new IntPtr(ret.BaseAddress.ToInt32() + ret.Size);
+					ret.EntryPointAddress = pm.EntryPointAddress;
+					ret.BaseName = pm.ModuleName;
+					ret.FileName = pm.FileName;
 
-						return ret;
-					}
+					return ret;
 				}
 			}
 			return null;
