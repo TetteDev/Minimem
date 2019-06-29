@@ -1034,8 +1034,7 @@ namespace MiniMem
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			if (value.Length < 1) return false;
 			if (defaultEncoding == null) defaultEncoding = Encoding.UTF8;
-			var memory = new byte[value.Length];
-			memory = defaultEncoding.GetBytes(value);
+			var memory = defaultEncoding.GetBytes(value);
 			return WriteProcessMemory((int) AttachedProcess.ProcessHandle, (int) address, memory, memory.Length, out var numBytesRead);
 		}
 
@@ -1067,7 +1066,7 @@ namespace MiniMem
 			return WriteProcessMemory((int) AttachedProcess.ProcessHandle, (int) address, buffer, buffer.Length, out m_iNumberOfBytesWritten);
 		}
 
-		public static void WriteArray<T>(long address, T[] arr) where T : struct
+		private static void WriteArray<T>(long address, T[] arr) where T : struct
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			if (arr == null || arr.Length < 1) return;
@@ -1187,7 +1186,7 @@ namespace MiniMem
 			return newInstance;
 		}
 
-		public static TrampolineInstance CreateTrampoline64Bit(ulong targetInstructionAddress, int instructionCount, string[] mnemonics64bit, bool shouldSuspend = true, bool preserveOriginalInstruction = true)
+		private static TrampolineInstance CreateTrampoline64Bit(ulong targetInstructionAddress, int instructionCount, string[] mnemonics64bit, bool shouldSuspend = true, bool preserveOriginalInstruction = true)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) return null;
 			if (instructionCount < 10)
@@ -1208,13 +1207,13 @@ namespace MiniMem
 				modified = mnemonics64bit.ToList();
 				modified.Insert(0, "use64");
 
-				if (!TryAssemble(modified.ToArray(), false, out byte[] assembledResult)) // See if the provided mnemonics are valid 64bit mnemonics
+				if (!TryAssemble(modified.ToArray(), false, out byte[] assembledResult,out var errorcode)) // See if the provided mnemonics are valid 64bit mnemonics
 					return null; // Invalid 64bit mnemonics according to Flat Assembler
 			}
 			else
 			{
 				modified = mnemonics64bit.ToList();
-				if (!TryAssemble(modified.ToArray(), false, out byte[] assembledResult)) // See if the provided mnemonics are valid 64bit mnemonics
+				if (!TryAssemble(modified.ToArray(), false, out byte[] assembledResult,out var errorcode)) // See if the provided mnemonics are valid 64bit mnemonics
 					return null; // Invalid 64bit mnemonics according to Flat Assembler
 			}
 
@@ -1531,24 +1530,6 @@ namespace MiniMem
 			createdObject = returnObject;
 			return true;
 		}
-
-
-		public static bool RestoreDetour(string identifier)
-		{
-			if (string.IsNullOrEmpty(identifier)) return false;
-			if (ActiveCallbacks.Count < 1) return false;
-			var toClear = ActiveCallbacks.FirstOrDefault(x => x.str_CallbackIdentifier == identifier);
-
-			if (toClear != null)
-			{
-				if (toClear.class_TrampolineInfo.OriginalBytes == null || toClear.class_TrampolineInfo.OriginalBytes.Length < 1) return false;
-				WriteBytes(toClear.class_TrampolineInfo.TrampolineOrigin, toClear.class_TrampolineInfo.OriginalBytes);
-				FreeMemory(toClear.class_TrampolineInfo.AllocatedMemory);
-				return true;
-			}
-			return false;
-		}
-
 		#endregion
 
 		#region FASM
@@ -1578,17 +1559,19 @@ namespace MiniMem
 			}
 		}
 
-		public static bool TryAssemble(string[] mnemonics, bool rebase, out byte[] assembled)
+		public static bool TryAssemble(string[] mnemonics, bool rebase, out byte[] assembled, out FasmAssemblerException error)
 		{
 			try
 			{
 				byte[] t = Assemble(mnemonics, rebase);
 				assembled = t;
+				error = null;
 				return true;
 			}
 			catch (FasmAssemblerException fEx)
 			{
 				assembled = null;
+				error = fEx;
 				return false;
 			}
 		}
@@ -1723,7 +1706,7 @@ namespace MiniMem
 		/// <param name="protectionFlags">See "MemoryProtection" enum: https://www.pinvoke.net/default.aspx/kernel32.virtualalloc </param>
 		/// <param name="allocationFlags">See "AllocationType" enum: https://www.pinvoke.net/default.aspx/kernel32.virtualalloc </param>
 		/// <returns>RemoteAllocatedMemory Instance</returns>
-		public static RemoteAllocatedMemory AllocateMemory(int size, MemoryProtection protectionFlags = MemoryProtection.ExecuteReadWrite, AllocationType allocationFlags = AllocationType.Commit | AllocationType.Reserve)
+		public static RemoteAllocatedMemory AllocateMemory(uint size, MemoryProtection protectionFlags = MemoryProtection.ExecuteReadWrite, AllocationType allocationFlags = AllocationType.Commit | AllocationType.Reserve)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
 			if (!AttachedProcess.IsRunning()) throw new Exception("Game is not running anymore!");
@@ -1747,6 +1730,7 @@ namespace MiniMem
 		public static bool FreeMemory(RemoteAllocatedMemory memoryItem)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
+			if (memoryItem.Pointer == IntPtr.Zero) return false;
 			if (!AttachedProcess.IsRunning()) return false;
 			try
 			{
@@ -1763,11 +1747,13 @@ namespace MiniMem
 		/// </summary>
 		/// <param name="lpBase">Base address of allocated region</param>
 		/// <param name="size">Amount of memory to to free</param>
+		/// <param name="dwFreeType">Freeing Type, defaults to MEM_RELEASE</param>
 		/// <returns>bool</returns>
-		public static bool FreeMemory(IntPtr lpBase, int size)
+		public static bool FreeMemory(IntPtr lpBase, uint size, uint dwFreeType = 0x8000)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
-			return VirtualFreeEx(AttachedProcess.ProcessHandle, lpBase, 0, 0x8000);
+			if (lpBase == IntPtr.Zero) return false;
+			return VirtualFreeEx(AttachedProcess.ProcessHandle, lpBase, (dwFreeType & 0x8000) != 0 ? 0 : (int)size, dwFreeType);
 		}
 
 		#endregion
@@ -1805,11 +1791,18 @@ namespace MiniMem
 			FreeMemory(alloc);
 		}
 
-		public static bool ExecuteCodeEx<T>(string[] mnemonics, out T returnvalue) where T : struct 
+		/// <summary>
+		/// Converts 32bit Flat assembler valid mnemonics into shellcode and executes said shellcode inside the remote process and returns the value of EAX after the first instance of a call instruction
+		/// </summary>
+		/// <param name="mnemonics">Valid 32bit flat assembler mnemonics</param>
+		/// <param name="returnvalue">Returned value of register parameter, marshalled into any value type</param>
+		/// <param name="register">Register to read value off</param>
+		/// <returns>Success State</returns>
+		public static bool ExecuteCodeEx<T>(string[] mnemonics, out T returnvalue, string register = "eax") where T : struct 
 		{
-			if (mnemonics == null || mnemonics.Length < 1)
+			if (mnemonics == null || mnemonics.Length < 1 || AttachedProcess.ProcessHandle == IntPtr.Zero)
 			{
-				returnvalue = default(T);
+				returnvalue = default;
 				return false;
 			}
 
@@ -1818,24 +1811,20 @@ namespace MiniMem
 
 			if (callIdx != -1)
 			{
-				var mem = AllocateMemory(4);
-				if (mem.Pointer == IntPtr.Zero)
-				{
-					throw new Exception("luls");
-				}
-				list.Insert(callIdx + 1, $"mov [{mem.Pointer}],eax");
+				var returnValueAddress = AllocateMemory(4);
+				if (returnValueAddress.Pointer == IntPtr.Zero)
+					throw new Exception($"Failed allocating memory (4 bytes) to store the value of register \"{register.ToUpper()}\"");
 
-				if (!TryAssemble(list.ToArray(), false, out byte[] assembledBytes))
+				list.Insert(callIdx + 1, $"mov [{returnValueAddress.Pointer}],{register.ToLower()}");
+
+				if (!TryAssemble(list.ToArray(), false, out byte[] assembledBytes, out FasmAssemblerException errorcode))
 				{
-					throw new Exception("Invalid Mnemonics!");
+					throw errorcode ?? new Exception("Invalid Mnemonics!");
 				}
 
-				RemoteAllocatedMemory alloc = AllocateMemory(assembledBytes.Length, MemoryProtection.ExecuteReadWrite, AllocationType.Commit);
+				RemoteAllocatedMemory alloc = AllocateMemory((uint)assembledBytes.Length, MemoryProtection.ExecuteReadWrite, AllocationType.Commit);
 				if (alloc.Pointer == IntPtr.Zero)
-				{
-					returnvalue = default(T);
-					return false;
-				}
+					throw new Exception("Failed allocating memory inside remote process!");
 
 				WriteBytes(alloc.Pointer.ToInt32(), assembledBytes);
 				IntPtr hThread = Native.CreateRemoteThread(AttachedProcess.ProcessHandle,
@@ -1849,26 +1838,27 @@ namespace MiniMem
 				if (hThread == IntPtr.Zero)
 				{
 					FreeMemory(alloc);
-					FreeMemory(mem);
-					returnvalue = default(T);
+					FreeMemory(returnValueAddress);
+					returnvalue = default;
 					return false;
 				}
+
 				WaitForSingleObject(hThread, 0xFFFFFFFF);
 				CloseHandle(hThread);
 				FreeMemory(alloc);
 
 				try
 				{
-					returnvalue = ReadMemory<T>(mem.Pointer.ToInt64());
+					returnvalue = ReadMemory<T>(returnValueAddress.Pointer.ToInt64());
 					return true;
 				}
 				catch
 				{
-					throw new Exception("Failed reading return value from address 0x" + mem);
+					throw new Exception( $"Failed reading return value from address 0x{returnValueAddress}");
 				}
 				finally
 				{
-					FreeMemory(mem);
+					FreeMemory(returnValueAddress);
 				}
 			}
 			else
@@ -1876,99 +1866,6 @@ namespace MiniMem
 				throw new Exception("Cannot find 'call' instruction in mnemonics");
 			}
 		}
-
-		/// <summary>
-		/// Converts 32bit Flat assembler valid mnemonics into shellcode and executes said shellcode inside the remote process and returns the specified value in desired register
-		/// </summary>
-		/// <param name="mnemonics">Valid 32bit flat assembler mnemonics</param>
-		/// <param name="returnValue">Return value from desired register</param>
-		/// <param name="optionalRegisterReturn">Register to return</param>
-		/// <returns></returns>
-		public static bool ExecuteCode<T>(string[] mnemonics, out T returnValue, string optionalRegisterReturn = "eax", bool flag = false, string insertPattern = "<return>") where T : struct
-		{
-			if (mnemonics == null || mnemonics.Length < 1)
-			{
-				returnValue = default(T);
-				return false;
-			}
-
-			RemoteAllocatedMemory eaxReturnValue = AllocateMemory(sizeof(int));
-			if (eaxReturnValue.Pointer == IntPtr.Zero)
-			{
-				returnValue = default(T);
-				return false;
-			}
-
-			List<string> mnemonicsList = mnemonics.ToList();
-			if (flag && insertPattern != "")
-			{
-				int idx = mnemonicsList.IndexOf(insertPattern);
-				if (idx != -1)
-				{
-					mnemonicsList.Insert(idx,
-						$"mov [{eaxReturnValue.Pointer}],{optionalRegisterReturn}");
-					mnemonicsList.RemoveAt(idx + 1);
-				}
-				else
-				{
-					throw new Exception($"{nameof(flag)} was set to true but could not find an instance of '{insertPattern}' in the provided mnemonics");
-				}
-			}
-			else
-			{
-				if (insertPattern != "" && mnemonicsList.Contains(insertPattern))
-				{
-					int idx = mnemonicsList.IndexOf(insertPattern);
-					if (idx != -1)
-					{
-						mnemonicsList.RemoveAt(idx);
-					}
-				}
-				mnemonicsList.Add($"mov [{eaxReturnValue.Pointer}],{optionalRegisterReturn}");
-			}
-
-			if (!TryAssemble(mnemonicsList.ToArray(), false, out byte[] assembledBytes))
-			{
-				throw new Exception("Invalid Mnemonics!");
-			}
-
-			RemoteAllocatedMemory alloc = AllocateMemory(assembledBytes.Length, MemoryProtection.ExecuteReadWrite, AllocationType.Commit);
-			if (alloc.Pointer == IntPtr.Zero)
-			{
-				returnValue = default(T);
-				return false;
-			}
-			WriteBytes(alloc.Pointer.ToInt32(), assembledBytes);
-			IntPtr hThread = Native.CreateRemoteThread(AttachedProcess.ProcessHandle,
-				IntPtr.Zero,
-				IntPtr.Zero,
-				alloc.Pointer,
-				IntPtr.Zero /* LP PARAMETER  */,
-				(uint) ThreadCreationFlags.Run,
-				IntPtr.Zero);
-
-			if (hThread == IntPtr.Zero)
-			{
-				FreeMemory(alloc);
-				FreeMemory(eaxReturnValue);
-				returnValue = default(T);
-				return false;
-			}
-			WaitForSingleObject(hThread, 0xFFFFFFFF);
-			CloseHandle(hThread);
-			FreeMemory(alloc);
-
-			try
-			{
-				returnValue = ReadMemory<T>(eaxReturnValue.Pointer.ToInt64());
-				return true;
-			}
-			finally
-			{
-				FreeMemory(eaxReturnValue);
-			}
-		}
-
 		#endregion
 
 		#region Modules

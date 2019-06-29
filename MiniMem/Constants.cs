@@ -341,37 +341,15 @@ namespace MiniMem
 
 		public class RemoteAllocatedMemory
 		{
-			private Dictionary<string, int> m_allocated = new Dictionary<string, int>();
-			private uint m_currentOffset = 0;
-
 			public IntPtr Pointer;
-			public int Size;
+			public uint Size;
 
 			public uint ProtectionFlags;
 			public uint AllocationFlags;
 
-
-			public IntPtr AllocateOfChunk<T>(string name)
+			public bool ReleaseMemory()
 			{
-				return AllocateOfChunk(name, Helper.MarshalCache<T>.Size);
-			}
-			public IntPtr AllocateOfChunk(string name, int size)
-			{
-				uint currentOffset = this.m_currentOffset;
-				m_allocated.Add(name, (int)currentOffset);
-				int num = size + (int)m_currentOffset;
-				m_currentOffset = (uint)num;
-				int num2 = num % 4;
-				if (num2 != 0)
-				{
-					m_currentOffset = (uint)num - (uint)num2 + 4;
-				}
-				return new IntPtr(Pointer.ToInt32() + currentOffset);
-			}
-
-			public void Free()
-			{
-				MiniMem.FreeMemory(Pointer, Size);
+				return MiniMem.FreeMemory(Pointer, Size);
 			}
 		}
 
@@ -435,7 +413,7 @@ namespace MiniMem
 				}
 
 					
-				AllocatedMemory?.Free();	
+				AllocatedMemory?.ReleaseMemory();	
 			}
 		}
 
@@ -461,24 +439,6 @@ namespace MiniMem
 			public int ESI; // 0x20
 			public int EBP; // 0x24
 			public int ESP; // 0x28
-		}
-
-		//public class FreezeItem<T> where T : struct
-		public class FreezeItem
-		{
-			public long Address = default(long);
-			public string Identifier = default(string);
-
-			public string ValueType = null;
-			public object Value = null;
-
-			public bool IsValid()
-			{
-				return Address != default(long) &&
-				       Identifier != default(string) &&
-				       Value != null &&
-				       ValueType != null;
-			}
 		}
 	}
 }

@@ -1,3 +1,6 @@
+# **Note**
+The files in the release section are not up2date with the code that is in the repository, thats why I recommend cloning this repo and building it yourself
+
 # **Minimem - 32bit C# Based Memory Library**
 ## Some Basic Features:
 1. Generic Read and Write methods for all standard types such as **float**, **int**, etc..
