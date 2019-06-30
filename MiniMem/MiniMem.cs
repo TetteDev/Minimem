@@ -1285,6 +1285,21 @@ namespace MiniMem
 			};
 		}
 
+		/// <summary>
+		/// Creates a basic trampoline/jmp along with a callback
+		/// </summary>
+		/// <param name="targetAddress">The address where to place the initial jmp</param>
+		/// <param name="targetAddressInstructionCount">The amount of bytes you're over writing at the target address</param>
+		/// <param name="mnemonics">The valid 32bit Flat assembler mnemonics to write into our code cave</param>
+		/// <param name="codeExecutedEventDelegate">Delegate to execute when codecave is executed</param>
+		/// <param name="createdObject">Final returned callback object</param>
+		/// <param name="identifier">The "name" or identifier for your callback and trampoline</param>
+		/// <param name="shouldSuspend">Whether the function should suspend the process during the installation of the detour</param>
+		/// <param name="preserveOriginalInstruction">Whether the function should write the overwritten bytes into the codecave</param>
+		/// <param name="implementCallback">If a callback should be implemented or not</param>
+		/// <param name="implementRegisterDump">If function should write shellcode to dump register values when the codecave gets executed</param>
+		/// <param name="printDebugDetourData">If true, prints formatted info to the console</param>
+		/// <returns>TrampolineInstance</returns>
 		public static bool CreateTrampolineAndCallback(IntPtr targetAddress, int targetAddressInstructionCount, string[] mnemonics, CallbackDelegate codeExecutedEventDelegate, out CallbackObject createdObject,
 			string identifier = "", bool shouldSuspend = true, bool preserveOriginalInstruction = false, bool implementCallback = true, bool implementRegisterDump = true, bool printDebugDetourData = false)
 		{
@@ -1377,7 +1392,7 @@ namespace MiniMem
 				if (implementCallback && incInstructionIndex != -1)
 				{
 					// Place register dump mnemonics just before the index where the callback "inc" instruction is
-					baseMnemonics.InsertRange(incInstructionIndex, new string[]
+					baseMnemonics.InsertRange(incInstructionIndex, new[]
 					{
 						$"mov [{registerStructurePointer.Pointer}],eax",
 						$"mov [{registerStructurePointer.Pointer + 4}],ebx",
@@ -1393,7 +1408,7 @@ namespace MiniMem
 				{
 					if (baseMnemonics[baseMnemonics.Count - 1].ToLower().StartsWith("ret") || baseMnemonics[baseMnemonics.Count - 1].ToLower().StartsWith("retn"))
 					{
-						baseMnemonics.InsertRange(baseMnemonics.Count - 1, new string[]
+						baseMnemonics.InsertRange(baseMnemonics.Count - 1, new[]
 						{
 							$"mov [{registerStructurePointer.Pointer}],eax",
 							$"mov [{registerStructurePointer.Pointer + 4}],ebx",
@@ -1407,7 +1422,7 @@ namespace MiniMem
 					}
 					else
 					{
-						baseMnemonics.InsertRange(baseMnemonics.Count, new string[]
+						baseMnemonics.InsertRange(baseMnemonics.Count, new[]
 						{
 							$"mov [{registerStructurePointer.Pointer}],eax",
 							$"mov [{registerStructurePointer.Pointer + 4}],ebx",
@@ -1752,8 +1767,7 @@ namespace MiniMem
 		public static bool FreeMemory(IntPtr lpBase, uint size, uint dwFreeType = 0x8000)
 		{
 			if (AttachedProcess.ProcessHandle == IntPtr.Zero) throw new Exception("Memory module has not been attached to any process!");
-			if (lpBase == IntPtr.Zero) return false;
-			return VirtualFreeEx(AttachedProcess.ProcessHandle, lpBase, (dwFreeType & 0x8000) != 0 ? 0 : (int)size, dwFreeType);
+			return lpBase != IntPtr.Zero && VirtualFreeEx(AttachedProcess.ProcessHandle, lpBase, (dwFreeType & 0x8000) != 0 ? 0 : (int)size, dwFreeType);
 		}
 
 		#endregion
@@ -1797,8 +1811,10 @@ namespace MiniMem
 		/// <param name="mnemonics">Valid 32bit flat assembler mnemonics</param>
 		/// <param name="returnvalue">Returned value of register parameter, marshalled into any value type</param>
 		/// <param name="register">Register to read value off</param>
+		/// <param name="rebase">Converts relative addresses to start at param 'rebaseOrigin'</param>
+		/// <param name="rebaseOrigin">Converts relative addresses to start at param 'rebaseOrigin'</param>
 		/// <returns>Success State</returns>
-		public static bool ExecuteCodeEx<T>(string[] mnemonics, out T returnvalue, string register = "eax") where T : struct 
+		public static bool ExecuteCodeEx<T>(string[] mnemonics, out T returnvalue, string register = "eax", bool rebase = false, int rebaseOrigin = 0) where T : struct 
 		{
 			if (mnemonics == null || mnemonics.Length < 1 || AttachedProcess.ProcessHandle == IntPtr.Zero)
 			{
@@ -1813,14 +1829,23 @@ namespace MiniMem
 			{
 				var returnValueAddress = AllocateMemory(4);
 				if (returnValueAddress.Pointer == IntPtr.Zero)
-					throw new Exception($"Failed allocating memory (4 bytes) to store the value of register \"{register.ToUpper()}\"");
+					throw new Exception($"Failed allocating memory ({returnValueAddress.Size} bytes) to store the value of register \"{register.ToUpper()}\"");
 
 				list.Insert(callIdx + 1, $"mov [{returnValueAddress.Pointer}],{register.ToLower()}");
+				byte[] assembledBytes = null;
 
-				if (!TryAssemble(list.ToArray(), false, out byte[] assembledBytes, out FasmAssemblerException errorcode))
+				if (rebase)
 				{
-					throw errorcode ?? new Exception("Invalid Mnemonics!");
+					assembledBytes = Assemble(list.ToArray(), true, rebaseOrigin);
 				}
+				else
+				{
+					if (!TryAssemble(list.ToArray(), false, out assembledBytes, out FasmAssemblerException errorcode))
+					{
+						throw errorcode ?? new Exception("Invalid Mnemonics!");
+					}
+				}
+				
 
 				RemoteAllocatedMemory alloc = AllocateMemory((uint)assembledBytes.Length, MemoryProtection.ExecuteReadWrite, AllocationType.Commit);
 				if (alloc.Pointer == IntPtr.Zero)
