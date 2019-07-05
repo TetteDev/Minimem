@@ -347,9 +347,23 @@ namespace MiniMem
 			public uint ProtectionFlags;
 			public uint AllocationFlags;
 
+			/// <summary>
+			/// Frees the memory accociated with this object
+			/// </summary>
+			/// <returns></returns>
 			public bool ReleaseMemory()
 			{
 				return MiniMem.FreeMemory(Pointer, Size);
+			}
+
+			/// <summary>
+			/// Checks if the allocated memory of this object is valid or not
+			/// </summary>
+			/// <returns></returns>
+			public bool IsValid()
+			{
+				return Pointer != IntPtr.Zero
+				       && Size > 0;
 			}
 		}
 
@@ -429,6 +443,19 @@ namespace MiniMem
 		}
 
 		[StructLayout(LayoutKind.Sequential)]
+		public struct RegistersOld
+		{
+			public int EAX; // 0x0
+			public int EBX; // 0x4
+			public int ECX; // 0x8
+			public int EDX; // 0x12
+			public int EDI; // 0x16
+			public int ESI; // 0x20
+			public int EBP; // 0x24
+			public int ESP; // 0x28
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
 		public struct Registers
 		{
 			public int EAX; // 0x0
@@ -439,6 +466,15 @@ namespace MiniMem
 			public int ESI; // 0x20
 			public int EBP; // 0x24
 			public int ESP; // 0x28
+
+			public float XMM0; // 0x32
+			public float XMM1; // 0x36
+			public float XMM2; // 0x40
+			public float XMM3; // 0x44
+			public float XMM4; // 0x48
+			public float XMM5; // 0x52
+			public float XMM6; // 0x56
+			public float XMM7; // 0x60
 		}
 	}
 }

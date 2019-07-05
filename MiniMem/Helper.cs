@@ -2,10 +2,17 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Net;
+using System.Net.Cache;
+using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using static MiniMem.Constants;
 using Byte = MiniMem.Constants.Byte;
 
@@ -40,7 +47,7 @@ namespace MiniMem
 	{
 		public static int GetOffset<T>(this T structObject, string offsetname)
 		{
-			return string.IsNullOrEmpty(offsetname) ? 0 : Marshal.OffsetOf<T>(offsetname).ToInt32();
+			return string.IsNullOrEmpty(offsetname) ? throw new Exception("") : Marshal.OffsetOf<T>(offsetname).ToInt32();
 		}
 	}
 	public static class StringExtensions
@@ -51,10 +58,85 @@ namespace MiniMem
 			Debug.WriteLine(strObject);
 		}
 	}
+	public static class ListExtensions
+	{
+		public static List<(int Index, T Item)> FindAllOccurencesOf<T>(this List<T> list, Func<T, bool> predicate)
+		{
+			if (list == null) throw new NullReferenceException($"IList<{typeof(T)}> was null");
+			if (predicate == null) throw new NullReferenceException($"Predicate was null");
+			return list.Where(predicate).ToArray().Select(item => (Index: list.IndexOf(item), Item: item)).ToList();
+		}
 
+		public static T GetRandomItem<T>(this List<T> list)
+		{
+			if (list == null || list.Count < 1) throw new  NullReferenceException($"List was null or empty!");
+			return list.Shuffle()[0];
+		}
+
+		public static List<T> Shuffle<T>(this List<T> list)
+		{
+			return list.OrderBy(x => Guid.NewGuid()).ToList();
+		}
+	}
 	public class Helper
 	{
 		public static bool bCallbackThreadExitFlag = false;
+
+		public static bool OnlineAssemble(string[] assemblycode, bool isX86, out byte[] assembled)
+		{
+			if (assemblycode == null || assemblycode.Length < 1) throw new Exception("deal with this later");
+
+			var request = (HttpWebRequest) WebRequest.Create("https://defuse.ca/online-x86-assembler.htm");
+
+			var postData = $"instructions={string.Join("\n", assemblycode)}";
+			postData += $"&arch={(isX86 ? "x86" : "x64")}";
+			postData += "&submit=Assemble";
+
+			var data = Encoding.UTF8.GetBytes(postData);
+
+			request.Method = "POST";
+			request.Credentials = CredentialCache.DefaultCredentials;
+			request.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36";
+			request.Referer = "https://defuse.ca/online-x86-assembler.htm";
+			request.ContentType = "application/x-www-form-urlencoded";
+			request.ContentLength = data.Length;
+			request.Host = "defuse.ca";
+			request.KeepAlive = true;
+			request.Accept = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3";
+			request.AutomaticDecompression = DecompressionMethods.Deflate | DecompressionMethods.GZip;
+			request.Headers.Add("Upgrade-Insecure-Requests", @"1");
+			request.Headers.Add("DNT", @"1");
+
+			request.Headers.Set(HttpRequestHeader.AcceptEncoding, "gzip, deflate, br");
+			request.Headers.Set(HttpRequestHeader.AcceptLanguage, "en-GB,en;q=0.9,en-US;q=0.8,sv;q=0.7,pl;q=0.6");
+
+			using (var stream = request.GetRequestStream())
+			{
+				stream.Write(data, 0, data.Length);
+			}
+
+			var response = (HttpWebResponse) request.GetResponse();
+			var responseString = new StreamReader(response.GetResponseStream() ?? throw new InvalidOperationException("ResponseStream was null!")).ReadToEnd();
+
+			try
+			{
+				var startIdx = responseString.IndexOf("{ ", StringComparison.Ordinal);
+				var endIdx = responseString.IndexOf(" }                </p>", StringComparison.Ordinal);
+				var extracted = responseString.Substring(startIdx + 2, endIdx - startIdx - 2).Replace(" ", string.Empty);
+
+				assembled = extracted.Split(',').Select(strByte => Convert.ToByte(strByte, 16)).ToArray();
+				return response.StatusCode == HttpStatusCode.OK 
+				       && responseString.Contains("Array Literal") 
+				       && assembled.Length > 0;
+			}
+			catch
+			{
+				// Looks like you got some fixing to do :)
+				assembled = null;
+				return false;
+			}
+		}
+
 
 		public static void CompareScanMulti(MemoryRegionResult item, ref List<Tuple<MultiAobItem, ConcurrentBag<long>>> aobCollection, IntPtr processHandle)
 		{
@@ -517,10 +599,7 @@ namespace MiniMem
 			}
 
 			objObjectType = (OBJECT_TYPE_INFORMATION)Marshal.PtrToStructure(ipObjectType, objObjectType.GetType());
-			if (Is64Bits())
-				ipTemp = new IntPtr(Convert.ToInt64(objObjectType.Name.Buffer.ToString(), 10) >> 32);
-			else
-				ipTemp = objObjectType.Name.Buffer;
+			ipTemp = Is64Bits() ? new IntPtr(Convert.ToInt64(objObjectType.Name.Buffer.ToString(), 10) >> 32) : objObjectType.Name.Buffer;
 
 			strObjectTypeName = Marshal.PtrToStringUni(ipTemp, objObjectType.Name.Length >> 1);
 			Marshal.FreeHGlobal(ipObjectType);
@@ -535,7 +614,6 @@ namespace MiniMem
 			var ipObjectType = IntPtr.Zero;
 			var objObjectName = new OBJECT_NAME_INFORMATION();
 			var ipObjectName = IntPtr.Zero;
-			var strObjectName = "";
 			var nLength = 0;
 			var nReturn = 0;
 			var ipTemp = IntPtr.Zero;
@@ -573,7 +651,7 @@ namespace MiniMem
 				{
 					Marshal.Copy(ipTemp, baTemp2, 0, nLength);
 
-					strObjectName = Marshal.PtrToStringUni(Is64Bits() ? new IntPtr(ipTemp.ToInt64()) : new IntPtr(ipTemp.ToInt32()));
+					var strObjectName = Marshal.PtrToStringUni(Is64Bits() ? new IntPtr(ipTemp.ToInt64()) : new IntPtr(ipTemp.ToInt32()));
 					return strObjectName;
 				}
 				catch (AccessViolationException)
@@ -623,13 +701,11 @@ namespace MiniMem
 			}
 
 			List<HandleInformation> toReturn = new List<HandleInformation>();
-			SYSTEM_HANDLE_INFORMATION shHandle;
-			HandleInformation realInfo;
 
 			for (long lIndex = 0; lIndex < lHandleCount; lIndex++)
 			{
-				shHandle = new SYSTEM_HANDLE_INFORMATION();
-				realInfo = new HandleInformation();
+				var shHandle = new SYSTEM_HANDLE_INFORMATION();
+				var realInfo = new HandleInformation();
 
 				if (Is64Bits())
 				{
